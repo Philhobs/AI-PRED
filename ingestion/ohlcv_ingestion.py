@@ -77,13 +77,24 @@ def save_ohlcv(records: list[dict], ticker: str, output_dir: Path) -> None:
 
 
 if __name__ == "__main__":
+    import argparse
     from dotenv import load_dotenv
     load_dotenv()
 
+    parser = argparse.ArgumentParser(description="Download OHLCV price data for all watchlist tickers.")
+    parser.add_argument(
+        "--bootstrap",
+        action="store_true",
+        help="Download maximum available history (~20y). Omit for daily 5-day refresh.",
+    )
+    args = parser.parse_args()
+
+    period = "max" if args.bootstrap else "5d"
     output_dir = Path("data/raw")
+
     for ticker in TICKERS:
-        print(f"[OHLCV] Downloading {ticker}...")
-        records = fetch_ohlcv(ticker, period="2y")
+        print(f"[OHLCV] Downloading {ticker} (period={period})...")
+        records = fetch_ohlcv(ticker, period=period)
         save_ohlcv(records, ticker, output_dir)
         time.sleep(1)  # Rate limit — Yahoo Finance fair use
     print(f"[OHLCV] Done. {len(TICKERS)} tickers written to {output_dir}/financials/ohlcv/")
