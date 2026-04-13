@@ -52,6 +52,46 @@ def _make_mock_ticker():
     return mock
 
 
+def _make_mock_ticker_five_quarters():
+    """Mock with 5 quarters so revenue_growth_yoy is exercised."""
+    mock = MagicMock()
+    # 5 quarterly periods; revenue grows 10% YoY (Q5→Q1 gap = 4 quarters)
+    periods = [
+        pd.Timestamp("2024-03-31"),  # i=0 (most recent)
+        pd.Timestamp("2023-12-31"),  # i=1
+        pd.Timestamp("2023-09-30"),  # i=2
+        pd.Timestamp("2023-06-30"),  # i=3
+        pd.Timestamp("2023-03-31"),  # i=4 (same quarter 1y ago)
+    ]
+    revenues = [44e9, 42e9, 40e9, 38e9, 40e9]  # i=0 vs i=4: (44-40)/40 = 0.10
+    mock.quarterly_financials = pd.DataFrame(
+        {p: {"Total Revenue": r, "Gross Profit": r * 0.7,
+             "Operating Income": r * 0.4, "Capital Expenditure": -r * 0.1}
+         for p, r in zip(periods, revenues)}
+    )
+    mock.quarterly_balance_sheet = pd.DataFrame(
+        {p: {"Stockholders Equity": 100e9, "Total Debt": 30e9,
+             "Current Assets": 80e9, "Current Liabilities": 25e9}
+         for p in periods}
+    )
+    mock.info = {"trailingPE": 40.0, "priceToSalesTrailing12Months": 15.0, "priceToBook": 8.0}
+    return mock
+
+
+def test_fetch_fundamentals_computes_revenue_growth_yoy():
+    """revenue_growth_yoy = (revenue[i] - revenue[i+4]) / abs(revenue[i+4]) for most recent."""
+    with patch("ingestion.fundamental_ingestion.yf.Ticker", return_value=_make_mock_ticker_five_quarters()):
+        from ingestion.fundamental_ingestion import fetch_fundamentals
+        records = fetch_fundamentals("NVDA")
+
+    records.sort(key=lambda r: r["period_end"], reverse=True)
+    # Most recent quarter (2024-Q1): revenue=44e9, prior year same quarter (2023-Q1): 40e9
+    # growth = (44 - 40) / 40 = 0.10
+    assert records[0]["revenue_growth_yoy"] == pytest.approx(0.10, rel=1e-4)
+    # Quarter at i=4 (2023-Q1): no prior year data (i+4=8 >= len=5) → None
+    assert records[4]["revenue_growth_yoy"] is None
+
+
 def test_fetch_fundamentals_returns_one_record_per_quarter():
     """fetch_fundamentals returns one dict per quarter in quarterly_financials."""
     with patch("ingestion.fundamental_ingestion.yf.Ticker", return_value=_make_mock_ticker()):
@@ -130,3 +170,11 @@ def test_save_fundamentals_writes_parquet_with_correct_schema(tmp_path):
     assert "period_end" in table.schema.names
     assert "gross_margin" in table.schema.names
     assert table.num_rows == 1
+
+    # Verify all 11 fields are present with correct names
+    expected_fields = {
+        "ticker", "period_end", "pe_ratio_trailing", "price_to_sales",
+        "price_to_book", "revenue_growth_yoy", "gross_margin",
+        "operating_margin", "capex_to_revenue", "debt_to_equity", "current_ratio",
+    }
+    assert set(table.schema.names) == expected_fields
