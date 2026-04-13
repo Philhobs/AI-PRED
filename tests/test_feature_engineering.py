@@ -1,11 +1,8 @@
-import pytest
 import duckdb
 import pandas as pd
 import polars as pl
-import pyarrow as pa
-import pyarrow.parquet as pq
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime
 
 
 def _write_ohlcv_parquet(tmp_path: Path, ticker: str = "NVDA", n: int = 30):
@@ -40,11 +37,11 @@ def test_feature_matrix_contains_return_columns(tmp_path):
     from processing.feature_engineering import build_daily_feature_matrix
     result = build_daily_feature_matrix(con, "2024-01-20", data_dir=tmp_path)
 
-    if not result.is_empty():
-        assert "return_1d" in result.columns
-        assert "return_5d" in result.columns
-        assert "taiwan_cargo_ratio" in result.columns
-        assert "sentiment_mean" in result.columns
+    assert not result.is_empty(), "Expected non-empty DataFrame for date 2024-01-20 within fixture data range"
+    assert "return_1d" in result.columns
+    assert "return_5d" in result.columns
+    assert "taiwan_cargo_ratio" in result.columns
+    assert "sentiment_mean" in result.columns
 
 
 def test_build_daily_feature_matrix_returns_empty_for_missing_date(tmp_path):

@@ -13,12 +13,15 @@ WATCHLIST = {
 }
 
 FEATURE_RATIONALE = {
-    "taiwan_cargo_ratio": "Cargo vessel count Taiwan Strait (weekly) — GPU shipment leading indicator",
-    "construction_score_current": "Sentinel-2 NDBI at data center sites — capex deployment pace",
-    "sentiment_momentum_7d": "FinBERT net sentiment 7-day momentum — narrative shift signal",
-    "henry_hub_gas_price": "Natural gas spot — power cost leading indicator for utility margins",
-    "return_5d": "5-day price return — momentum signal",
+    "return_1d": "1-day price return — short-term momentum",
+    "return_5d": "5-day price return — weekly momentum signal",
+    "return_20d": "20-day price return — medium-term trend",
+    "sma_20_deviation": "Deviation from 20-day SMA — mean reversion signal",
+    "volatility_20d": "20-day realized volatility — risk regime signal",
     "volume_ratio": "Volume vs 20-day MA — institutional activity signal",
+    "taiwan_cargo_ratio": "Distinct cargo vessels Taiwan Strait per day (7-day avg) — GPU shipment leading indicator",
+    "sentiment_mean": "FinBERT mean net sentiment 7-day window — narrative signal",
+    "feature_date": "Date the feature row was computed for",
 }
 
 
@@ -32,6 +35,10 @@ def build_daily_feature_matrix(
     Returns Polars DataFrame: one row per ticker × all signal features.
     Returns empty DataFrame if no price data exists for the date.
     """
+    import re
+    if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', date_str):
+        raise ValueError(f"date_str must be YYYY-MM-DD, got: {date_str!r}")
+
     ohlcv_glob = str(data_dir / "financials" / "ohlcv" / "*" / "*.parquet")
 
     try:
@@ -76,14 +83,14 @@ def build_daily_feature_matrix(
     # AIS signal: Taiwan Strait weekly cargo count (1.0 if no data yet)
     try:
         ais_row = con.execute(f"""
-            SELECT COUNT(*) / 7.0 AS taiwan_cargo_ratio
+            SELECT COUNT(DISTINCT mmsi) AS taiwan_cargo_count
             FROM v_ais
             WHERE timestamp >= DATE '{date_str}' - INTERVAL '7 days'
                 AND timestamp < DATE '{date_str}'
                 AND corridor = 'taiwan_strait'
                 AND vessel_type BETWEEN 70 AND 89
         """).fetchone()
-        taiwan_cargo_ratio = float(ais_row[0] or 1.0)
+        taiwan_cargo_ratio = float(ais_row[0]) / 7.0 if ais_row[0] is not None else 1.0
     except Exception:
         taiwan_cargo_ratio = 1.0
 
@@ -95,7 +102,7 @@ def build_daily_feature_matrix(
             WHERE timestamp >= DATE '{date_str}' - INTERVAL '7 days'
                 AND timestamp < DATE '{date_str}'
         """).fetchone()
-        mean_sentiment = float(sent_row[0] or 0.0)
+        mean_sentiment = float(sent_row[0]) if sent_row[0] is not None else 0.0
     except Exception:
         mean_sentiment = 0.0
 
