@@ -88,6 +88,32 @@ def test_join_fundamentals_preserves_all_price_rows(tmp_path):
     # NVDA 2024-01-01 gets 2023-12-31 quarter
     nvda_jan = result.filter((pl.col("ticker") == "NVDA") & (pl.col("date") == datetime.date(2024, 1, 1)))
     assert nvda_jan["gross_margin"][0] == pytest.approx(0.65)
+    # Confirm no cross-ticker contamination: NVDA has data, AMZN does not
+    nvda_jun = result.filter((pl.col("ticker") == "NVDA") & (pl.col("date") == datetime.date(2024, 6, 1)))
+    assert nvda_jun["gross_margin"][0] == pytest.approx(0.65)  # same quarter, still matched
     # AMZN has no fundamentals → null
     amzn = result.filter(pl.col("ticker") == "AMZN")
     assert amzn["gross_margin"][0] is None
+
+
+def test_join_fundamentals_returns_null_when_date_before_earliest_quarter(tmp_path):
+    """When price date precedes all available fundamentals, result is null (no backward match)."""
+    price_df = pl.DataFrame({
+        "ticker": ["NVDA"],
+        "date":   [datetime.date(2023, 12, 31)],  # before 2024-03-31 quarter
+        "close_price": [500.0],
+    })
+
+    quarters = [
+        {"ticker": "NVDA", "period_end": datetime.date(2024, 3, 31),
+         "pe_ratio_trailing": 30.0, "price_to_sales": 10.0, "price_to_book": 5.0,
+         "revenue_growth_yoy": 0.2, "gross_margin": 0.70, "operating_margin": 0.45,
+         "capex_to_revenue": 0.10, "debt_to_equity": 0.30, "current_ratio": 2.0},
+    ]
+    _write_fundamentals_fixture(tmp_path, "NVDA", quarters)
+
+    from processing.fundamental_features import join_fundamentals
+    result = join_fundamentals(price_df, fundamentals_dir=tmp_path)
+
+    assert len(result) == 1
+    assert result["gross_margin"][0] is None  # no quarter available before 2023-12-31

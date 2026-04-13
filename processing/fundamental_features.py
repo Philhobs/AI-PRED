@@ -14,6 +14,20 @@ _FUND_COLS = [
     "current_ratio",
 ]
 
+_FUND_SCHEMA = {
+    "ticker": pl.Utf8,
+    "period_end": pl.Date,
+    "pe_ratio_trailing": pl.Float64,
+    "price_to_sales": pl.Float64,
+    "price_to_book": pl.Float64,
+    "revenue_growth_yoy": pl.Float64,
+    "gross_margin": pl.Float64,
+    "operating_margin": pl.Float64,
+    "capex_to_revenue": pl.Float64,
+    "debt_to_equity": pl.Float64,
+    "current_ratio": pl.Float64,
+}
+
 
 def join_fundamentals(
     price_df: pl.DataFrame,
@@ -43,12 +57,12 @@ def join_fundamentals(
 
     try:
         fund_df = (
-            pl.scan_parquet(glob)
+            pl.scan_parquet(glob, schema=_FUND_SCHEMA)
             .with_columns(pl.col("period_end").cast(pl.Date))
             .collect()
             .sort(["ticker", "period_end"])
         )
-    except (FileNotFoundError, pl.exceptions.ComputeError):
+    except FileNotFoundError:
         return price_df.with_columns(null_fund_cols)
 
     if fund_df.is_empty():
