@@ -134,3 +134,44 @@ def test_fetch_all_hyperscaler_capex_writes_parquet(mock_sleep, tmp_path):
     assert len(df) > 0
     assert "ticker" in df.columns
     assert "value" in df.columns
+
+
+def test_fetch_all_hyperscaler_capex_falls_back_on_404(tmp_path):
+    """fetch_all_hyperscaler_capex tries the next concept when the first returns 404."""
+    call_count = {"n": 0}
+
+    def mock_get(url, **kwargs):
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        if call_count["n"] == 0:
+            # First concept: 404
+            call_count["n"] += 1
+            from requests.exceptions import HTTPError
+            resp.raise_for_status.side_effect = HTTPError("404 Not Found")
+        else:
+            # Second concept: success
+            resp.raise_for_status.side_effect = None
+            resp.json.return_value = {
+                "units": {
+                    "USD": [
+                        {"val": 1_000_000, "start": "2023-01-01", "end": "2023-03-31",
+                         "form": "10-Q", "filed": "2023-04-30", "accn": "0001"},
+                    ]
+                }
+            }
+        return resp
+
+    with patch("requests.get", side_effect=mock_get), \
+         patch("ingestion.financial_ingestion.time.sleep"):
+        from ingestion.financial_ingestion import fetch_all_hyperscaler_capex
+        # Use a single-entry CIK_MAP subset to limit calls
+        import ingestion.financial_ingestion as fi
+        original_cik_map = fi.CIK_MAP
+        fi.CIK_MAP = {"MSFT": "0000789019"}
+        try:
+            fetch_all_hyperscaler_capex(tmp_path)
+        finally:
+            fi.CIK_MAP = original_cik_map
+
+    parquet_path = tmp_path / "financials" / "capex_history.parquet"
+    assert parquet_path.exists(), "capex_history.parquet should exist after successful fallback"

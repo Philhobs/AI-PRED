@@ -24,6 +24,10 @@ CIK_MAP = {
 }
 
 CAPEX_CONCEPT = "us-gaap:PaymentsToAcquirePropertyPlantAndEquipment"
+CAPEX_CONCEPTS = [
+    "us-gaap:PaymentsToAcquirePropertyPlantAndEquipment",
+    "us-gaap:PaymentsToAcquireProductiveAssets",
+]
 REVENUE_CONCEPT = "us-gaap:Revenues"
 RD_CONCEPT = "us-gaap:ResearchAndDevelopmentExpense"
 
@@ -64,19 +68,27 @@ def fetch_edgar_xbrl(cik: str, concept: str) -> list[dict]:
 def fetch_all_hyperscaler_capex(output_dir: Path):
     """
     Fetch quarterly capex for all hyperscalers from EDGAR XBRL.
+    Tries each concept in CAPEX_CONCEPTS in order, using the first that returns data.
     Free, no API key required.
     """
     records = []
     for ticker, cik in CIK_MAP.items():
-        try:
-            data = fetch_edgar_xbrl(cik, CAPEX_CONCEPT)
-            for row in data:
+        fetched = []
+        for concept in CAPEX_CONCEPTS:
+            try:
+                fetched = fetch_edgar_xbrl(cik, concept)
+                if fetched:
+                    break  # Use first concept that returns data
+            except Exception as e:
+                print(f"[Financial] {ticker} concept {concept}: {e} — trying next")
+            time.sleep(1)  # Rate limit compliance — SEC fair use
+        if fetched:
+            for row in fetched:
                 row["ticker"] = ticker
                 records.append(row)
-            print(f"[Financial] {ticker}: {len(data)} capex records from EDGAR")
-        except Exception as e:
-            print(f"[Financial] ERROR {ticker} capex: {e}")
-        time.sleep(1)  # Rate limit compliance — SEC fair use
+            print(f"[Financial] {ticker}: {len(fetched)} capex records from EDGAR")
+        else:
+            print(f"[Financial] {ticker}: no capex data found across all concepts")
 
     if records:
         path = output_dir / "financials" / "capex_history.parquet"
