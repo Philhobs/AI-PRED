@@ -161,17 +161,13 @@ def test_fetch_all_hyperscaler_capex_falls_back_on_404(tmp_path):
             }
         return resp
 
-    with patch("requests.get", side_effect=mock_get), \
+    with patch("ingestion.financial_ingestion.requests.get", side_effect=mock_get), \
          patch("ingestion.financial_ingestion.time.sleep"):
         from ingestion.financial_ingestion import fetch_all_hyperscaler_capex
         # Use a single-entry CIK_MAP subset to limit calls
         import ingestion.financial_ingestion as fi
-        original_cik_map = fi.CIK_MAP
-        fi.CIK_MAP = {"MSFT": "0000789019"}
-        try:
+        with patch.object(fi, "CIK_MAP", {"MSFT": "0000789019"}):
             fetch_all_hyperscaler_capex(tmp_path)
-        finally:
-            fi.CIK_MAP = original_cik_map
 
     parquet_path = tmp_path / "financials" / "capex_history.parquet"
     assert parquet_path.exists(), "capex_history.parquet should exist after successful fallback"

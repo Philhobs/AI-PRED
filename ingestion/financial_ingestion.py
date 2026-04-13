@@ -79,9 +79,9 @@ def fetch_all_hyperscaler_capex(output_dir: Path):
                 fetched = fetch_edgar_xbrl(cik, concept)
                 if fetched:
                     break  # Use first concept that returns data
-            except Exception as e:
+            except requests.exceptions.RequestException as e:
                 print(f"[Financial] {ticker} concept {concept}: {e} — trying next")
-            time.sleep(1)  # Rate limit compliance — SEC fair use
+        time.sleep(1)  # Rate limit: one sleep per ticker — SEC fair use
         if fetched:
             for row in fetched:
                 row["ticker"] = ticker
