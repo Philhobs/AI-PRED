@@ -110,3 +110,27 @@ def test_write_parquet_creates_file(tmp_path):
     assert table.num_rows == 1
     assert table.column("vessel_name")[0].as_py() == "TEST VESSEL"
     assert table.column("corridor")[0].as_py() == "taiwan_strait"
+
+
+def test_parse_message_equator_vessel_not_dropped():
+    """Vessel at lat=0.0 must NOT be dropped (falsy zero is still valid position)."""
+    from ingestion.ais_ingestion import _parse_message
+    msg = {
+        "MetaData": {"MMSI": "999", "ShipName": "GULF", "latitude": 0.0, "longitude": 5.5},
+        "Message": {"PositionReport": {"Sog": 3.0, "Cog": 0.0}, "ShipStaticData": {"Type": 70}},
+    }
+    result = _parse_message(msg)
+    assert result is not None
+    assert result["latitude"] == 0.0
+
+
+def test_parse_message_prime_meridian_vessel_not_dropped():
+    """Vessel at lon=0.0 must NOT be dropped."""
+    from ingestion.ais_ingestion import _parse_message
+    msg = {
+        "MetaData": {"MMSI": "888", "ShipName": "ATLANTIC", "latitude": 10.0, "longitude": 0.0},
+        "Message": {"PositionReport": {"Sog": 5.0, "Cog": 90.0}, "ShipStaticData": {"Type": 70}},
+    }
+    result = _parse_message(msg)
+    assert result is not None
+    assert result["longitude"] == 0.0

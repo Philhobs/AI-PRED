@@ -25,8 +25,8 @@ SCHEMA = pa.schema([
     pa.field("longitude", pa.float64()),
     pa.field("speed_knots", pa.float32()),
     pa.field("course", pa.float32()),
-    pa.field("destination", pa.string()),
     pa.field("draught", pa.float32()),
+    pa.field("destination", pa.string()),
     pa.field("corridor", pa.string()),
 ])
 
@@ -76,10 +76,10 @@ def _parse_message(msg: dict) -> dict | None:
         position = msg.get("Message", {}).get("PositionReport", {})
         static = msg.get("Message", {}).get("ShipStaticData", {})
 
-        lat = metadata.get("latitude") or position.get("Latitude")
-        lon = metadata.get("longitude") or position.get("Longitude")
+        lat = metadata.get("latitude") if metadata.get("latitude") is not None else position.get("Latitude")
+        lon = metadata.get("longitude") if metadata.get("longitude") is not None else position.get("Longitude")
 
-        if not lat or not lon:
+        if lat is None or lon is None:
             return None
 
         return {
@@ -92,8 +92,8 @@ def _parse_message(msg: dict) -> dict | None:
             "longitude": float(lon),
             "speed_knots": float(position.get("Sog", 0)),
             "course": float(position.get("Cog", 0)),
-            "destination": static.get("Destination", ""),
             "draught": float(static.get("Draught", 0)),
+            "destination": static.get("Destination", ""),
             "corridor": _identify_corridor(float(lat), float(lon)) or "other",
         }
     except Exception:
