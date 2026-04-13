@@ -1,7 +1,7 @@
 import duckdb
 from pathlib import Path
 
-DB_PATH = "data/analytics.duckdb"
+DB_PATH = str(Path(__file__).parent / "data" / "analytics.duckdb")
 
 
 def get_db_connection() -> duckdb.DuckDBPyConnection:
@@ -38,10 +38,11 @@ def create_views(con: duckdb.DuckDBPyConnection, data_dir: Path = Path("data/raw
             print(f"[DB] Skipped view {view_name} (no data yet)")
             continue
         try:
+            safe_path = str(path_glob).replace("'", "''")
             con.execute(f"""
                 CREATE OR REPLACE VIEW {view_name} AS
                 SELECT *
-                FROM read_parquet('{path_glob}', hive_partitioning=True, union_by_name=True)
+                FROM read_parquet('{safe_path}', hive_partitioning=True, union_by_name=True)
             """)
             print(f"[DB] Created view: {view_name}")
         except Exception as e:
@@ -49,12 +50,11 @@ def create_views(con: duckdb.DuckDBPyConnection, data_dir: Path = Path("data/raw
 
 
 if __name__ == "__main__":
-    con = get_db_connection()
-    create_views(con)
-    for view in ["v_ais", "v_flights", "v_news_rss", "v_financials_capex"]:
-        try:
-            n = con.execute(f"SELECT COUNT(*) FROM {view}").fetchone()[0]
-            print(f"  {view}: {n} rows")
-        except Exception:
-            print(f"  {view}: not available")
-    con.close()
+    with get_db_connection() as con:
+        create_views(con)
+        for view in ["v_ais", "v_flights", "v_news_rss", "v_financials_capex"]:
+            try:
+                n = con.execute(f"SELECT COUNT(*) FROM {view}").fetchone()[0]
+                print(f"  {view}: {n} rows")
+            except Exception:
+                print(f"  {view}: not available")

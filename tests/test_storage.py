@@ -56,4 +56,6 @@ def test_create_views_succeeds_with_no_parquet_files(tmp_path):
     con = duckdb.connect()
     from storage import create_views
     create_views(con, data_dir=tmp_path)  # Should not raise
+    tables = con.execute("SHOW TABLES").fetchall()
+    assert tables == [], f"Expected no views, got {tables}"
     con.close()
