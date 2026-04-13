@@ -94,23 +94,25 @@ def fetch_fred_energy_indicators() -> dict:
     api_key = os.getenv("FRED_API_KEY", "")
 
     series = {
-        "henry_hub_gas": "DHHNGSP",
-        "electricity_price_index": "MRTSSM44X72USS",
-        "electricity_production": "IPG2211A2N",
-        "core_cpi": "CPIUSLFESL",
+        "henry_hub_gas": "DHHNGSP",           # Henry Hub Natural Gas Spot (daily)
+        "electricity_retail_price": "APU000072610",  # US avg retail electricity price (monthly)
+        "electricity_production": "IPG2211A2N",      # Electric power production index
+        "core_cpi": "CPIUSLFESL",                    # Core CPI
     }
 
     results = {}
     for name, series_id in series.items():
         params = {
             "series_id": series_id,
-            "api_key": api_key or "abcdefghijklmnopqrstuvwxyz012345",
             "file_type": "json",
             "limit": 365,
             "sort_order": "desc",
         }
+        if api_key:
+            params["api_key"] = api_key
         try:
             resp = requests.get(fred_base, params=params, timeout=30)
+            resp.raise_for_status()
             data = resp.json().get("observations", [])
             results[name] = [
                 {
@@ -155,6 +157,7 @@ def fetch_eia_grid_data() -> dict:
     for name, config in endpoints.items():
         try:
             resp = requests.get(config["url"], params=config["params"], timeout=30)
+            resp.raise_for_status()
             results[name] = resp.json().get("response", {}).get("data", [])
             print(f"[EIA] {name}: {len(results[name])} records")
         except Exception as e:

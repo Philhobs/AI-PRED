@@ -63,7 +63,8 @@ def test_fetch_edgar_xbrl_sends_user_agent_header():
     assert "User-Agent" in captured_headers
 
 
-def test_fetch_fred_energy_indicators_returns_named_series():
+@patch("ingestion.financial_ingestion.time.sleep")
+def test_fetch_fred_energy_indicators_returns_named_series(mock_sleep):
     """fetch_fred_energy_indicators returns dict with henry_hub_gas and other keys."""
     mock_resp = MagicMock()
     mock_resp.json.return_value = {
@@ -80,13 +81,14 @@ def test_fetch_fred_energy_indicators_returns_named_series():
 
     assert isinstance(result, dict)
     assert "henry_hub_gas" in result
-    assert "electricity_price_index" in result
+    assert "electricity_retail_price" in result
     assert len(result["henry_hub_gas"]) == 2
     assert result["henry_hub_gas"][0]["date"] == "2024-01-15"
     assert result["henry_hub_gas"][0]["value"] == pytest.approx(2.85)
 
 
-def test_fetch_fred_handles_missing_dot_values():
+@patch("ingestion.financial_ingestion.time.sleep")
+def test_fetch_fred_handles_missing_dot_values(mock_sleep):
     """FRED uses '.' for missing values — must become None, not raise ValueError."""
     mock_resp = MagicMock()
     mock_resp.json.return_value = {
@@ -101,7 +103,8 @@ def test_fetch_fred_handles_missing_dot_values():
     assert result["henry_hub_gas"][0]["value"] is None
 
 
-def test_fetch_all_hyperscaler_capex_writes_parquet(tmp_path):
+@patch("ingestion.financial_ingestion.time.sleep")
+def test_fetch_all_hyperscaler_capex_writes_parquet(mock_sleep, tmp_path):
     """fetch_all_hyperscaler_capex writes capex_history.parquet with ticker column."""
     mock_resp = MagicMock()
     mock_resp.json.return_value = {
