@@ -74,7 +74,7 @@ def fetch_gdelt_events(query: str, days_back: int = 1) -> list[dict]:
             "source": "gdelt",
             "url": art.get("url", ""),
             "title": art.get("title", ""),
-            "content_snippet": art.get("seendate", ""),
+            "content_snippet": (art.get("title", "") + " " + art.get("excerpt", ""))[:500].strip(),
             "theme_tags": [],
             "goldstein_score": 0.0,
             "tone_score": float(str(art.get("tone", "0") or "0").split(",")[0]) if art.get("tone") else 0.0,
