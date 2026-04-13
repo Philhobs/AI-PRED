@@ -18,8 +18,7 @@ def test_score_batch_returns_correct_fields():
         mock_model = MagicMock()
         # logits: positive=2.0, negative=0.5, neutral=0.5
         mock_model.return_value = MagicMock(logits=torch.tensor([[2.0, 0.5, 0.5]]))
-        mock_model_instance = mock_model
-        MockModel.from_pretrained.return_value = mock_model_instance
+        MockModel.from_pretrained.return_value = mock_model
 
         from processing.nlp_pipeline import FinBERTScorer
         scorer = FinBERTScorer(device="cpu")
@@ -77,3 +76,5 @@ def test_compute_daily_sentiment_features_returns_list(tmp_path):
     result = compute_daily_sentiment_features(con, "2024-01-15")
 
     assert isinstance(result, list)
+    assert len(result) == 1
+    assert {"mean_sentiment", "article_volume", "positive_count", "negative_count"}.issubset(result[0].keys())

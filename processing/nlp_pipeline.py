@@ -1,6 +1,5 @@
 from transformers import BertTokenizer, BertForSequenceClassification
 import torch
-import pyarrow.parquet as pq
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -71,7 +70,8 @@ class FinBERTScorer:
         for field in ["positive", "negative", "neutral", "net_sentiment", "label"]:
             scored_df[field] = [s[field] for s in scores]
 
-        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        import pandas as pd
+        date_str = pd.to_datetime(df["timestamp"]).dt.date.mode()[0].strftime("%Y-%m-%d")
         out_path = output_dir / "news" / "scored" / f"date={date_str}" / "data.parquet"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         scored_df.to_parquet(str(out_path), compression="snappy")
@@ -84,6 +84,9 @@ def compute_daily_sentiment_features(duckdb_conn, date_str: str) -> list:
     Requires v_news view (register via storage.create_views).
     Returns empty list if no data for the date.
     """
+    import re
+    if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', date_str):
+        raise ValueError(f"date_str must be YYYY-MM-DD, got: {date_str!r}")
     query = f"""
     WITH daily AS (
         SELECT
@@ -94,7 +97,7 @@ def compute_daily_sentiment_features(duckdb_conn, date_str: str) -> list:
             SUM(CASE WHEN label = 'positive' THEN 1 ELSE 0 END) as positive_count,
             SUM(CASE WHEN label = 'negative' THEN 1 ELSE 0 END) as negative_count
         FROM v_news
-        WHERE timestamp >= DATE '{date_str}' - INTERVAL '30 days'
+        WHERE timestamp >= DATE '{date_str}' - INTERVAL '61 days'
         GROUP BY 1
     ),
     with_momentum AS (
