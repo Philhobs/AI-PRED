@@ -178,3 +178,48 @@ def test_save_fundamentals_writes_parquet_with_correct_schema(tmp_path):
         "operating_margin", "capex_to_revenue", "debt_to_equity", "current_ratio",
     }
     assert set(table.schema.names) == expected_fields
+
+
+def test_fetch_fundamentals_zero_revenue_yields_null_margins():
+    """When Total Revenue is 0, all three ratio fields are None (no divide-by-zero)."""
+    mock = MagicMock()
+    mock.quarterly_financials = pd.DataFrame({
+        pd.Timestamp("2024-03-31"): {
+            "Total Revenue": 0.0,
+            "Gross Profit": 0.0,
+            "Operating Income": 0.0,
+            "Capital Expenditure": 0.0,
+        },
+    })
+    mock.quarterly_balance_sheet = pd.DataFrame()
+    mock.info = {}
+
+    with patch("ingestion.fundamental_ingestion.yf.Ticker", return_value=mock):
+        from ingestion.fundamental_ingestion import fetch_fundamentals
+        records = fetch_fundamentals("ZERO")
+
+    assert len(records) == 1
+    assert records[0]["gross_margin"] is None
+    assert records[0]["operating_margin"] is None
+    assert records[0]["capex_to_revenue"] is None
+
+
+def test_fetch_fundamentals_positive_capex_is_absed():
+    """capex_to_revenue uses abs(capex) so a positive Capital Expenditure still yields a positive ratio."""
+    mock = MagicMock()
+    mock.quarterly_financials = pd.DataFrame({
+        pd.Timestamp("2024-03-31"): {
+            "Total Revenue": 100.0,
+            "Gross Profit": 60.0,
+            "Operating Income": 30.0,
+            "Capital Expenditure": 10.0,  # positive (unusual but valid)
+        },
+    })
+    mock.quarterly_balance_sheet = pd.DataFrame()
+    mock.info = {}
+
+    with patch("ingestion.fundamental_ingestion.yf.Ticker", return_value=mock):
+        from ingestion.fundamental_ingestion import fetch_fundamentals
+        records = fetch_fundamentals("POSEX")
+
+    assert records[0]["capex_to_revenue"] == pytest.approx(0.10)  # abs(10) / 100
