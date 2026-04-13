@@ -14,21 +14,24 @@ dependencies = [
   "feedparser>=6.0",
   "transformers>=4.45",
   "torch>=2.4",
-  "scikit-learn>=1.5",
-  "fastapi>=0.115",
-  "uvicorn>=0.32",
-  "streamlit>=1.40",
-  "plotly>=5.24",
-  "apscheduler>=3.10",
+  "yfinance>=0.2",
   "python-dotenv>=1.0",
-  "tiingo>=0.15",
-  "finnhub-python>=2.4",
 ]
 
 [project.optional-dependencies]
 dev = [
   "pytest>=8.0",
   "pytest-asyncio>=0.24",
+]
+phase2 = [
+  "scikit-learn>=1.5",
+  "fastapi>=0.115",
+  "uvicorn>=0.32",
+  "streamlit>=1.40",
+  "plotly>=5.24",
+  "apscheduler>=3.10",
+  "tiingo>=0.15",
+  "finnhub-python>=2.4",
 ]
 
 [build-system]
