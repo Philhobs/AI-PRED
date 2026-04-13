@@ -1,7 +1,7 @@
 from transformers import BertTokenizer, BertForSequenceClassification
 import torch
+import duckdb
 from pathlib import Path
-from datetime import datetime, timezone
 
 
 class FinBERTScorer:
@@ -61,7 +61,6 @@ class FinBERTScorer:
         text_column: str = "content_snippet",
     ):
         """Score all articles in a Parquet glob and write scored output."""
-        import duckdb
         df = duckdb.read_parquet(input_path).fetchdf()
         texts = df[text_column].fillna("").tolist()
         scores = self.score_batch(texts)
