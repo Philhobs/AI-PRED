@@ -1,5 +1,6 @@
 import feedparser
 import requests
+import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import pyarrow as pa
@@ -76,7 +77,7 @@ def fetch_gdelt_events(query: str, days_back: int = 1) -> list[dict]:
             "content_snippet": art.get("seendate", ""),
             "theme_tags": [],
             "goldstein_score": 0.0,
-            "tone_score": float(art.get("socialimage", 0) or 0),
+            "tone_score": float(str(art.get("tone", "0") or "0").split(",")[0]) if art.get("tone") else 0.0,
             "num_articles": 1,
             "actors": [],
             "countries": [],
@@ -134,6 +135,7 @@ def scrape_rss_feeds(output_dir: Path):
             print(f"[News] {source}: {len(feed.entries)} articles")
         except Exception as e:
             print(f"[News] ERROR {source}: {e}")
+        time.sleep(1)  # rate limit compliance
 
     if records:
         date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -190,6 +192,7 @@ if __name__ == "__main__":
             print(f"[News] Wrote {len(articles)} GDELT articles → {path}")
     except Exception as e:
         print(f"[News] GDELT ERROR: {e}")
+    time.sleep(1)  # rate limit compliance between GDELT and EDGAR calls
 
     print("[News] Searching EDGAR for AI infrastructure filings...")
     try:
