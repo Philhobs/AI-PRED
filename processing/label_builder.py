@@ -15,7 +15,7 @@ def build_labels(
 
     Uses row-offset shift within each ticker partition (Polars shift(-252).over("ticker")).
     Rows where the 252-day forward price is unavailable are dropped — this prevents
-    look-ahead leakage in model training.
+    look-ahead leakage in model training. A ticker with ≤252 rows returns no labeled rows.
 
     Returns DataFrame with columns: ticker (String), date (Date), label_return_1y (Float64).
     Returns empty DataFrame with the same schema when no data exists.
@@ -28,7 +28,7 @@ def build_labels(
             .select(["ticker", "date", "close_price"])
             .collect()
         )
-    except Exception:
+    except (FileNotFoundError, pl.exceptions.ComputeError):
         return pl.DataFrame(schema=_EMPTY_SCHEMA)
 
     if df.is_empty():
