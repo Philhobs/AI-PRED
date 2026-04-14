@@ -7,7 +7,6 @@ Congressional trades: House Stock Watcher bulk JSON + Senate EFTS paginated API.
 from __future__ import annotations
 
 import logging
-import re
 import re as _re
 import time
 import xml.etree.ElementTree as ET
@@ -27,7 +26,7 @@ _OPEN_MARKET_CODES = {"P", "S"}
 def _parse_form4_xml(xml_text: str, ticker: str, filed_date: str) -> list[dict]:
     """Parse Form 4 XML. Returns list of dicts for P/S transactions only."""
     # Strip XML namespaces so XPath expressions work on all EDGAR variants
-    xml_text = re.sub(r' xmlns(?::\w+)?="[^"]*"', '', xml_text)
+    xml_text = _re.sub(r' xmlns(?::\w+)?="[^"]*"', '', xml_text)
 
     try:
         root = ET.fromstring(xml_text)
@@ -250,7 +249,7 @@ def _parse_amount_band(amount_str: str) -> float | None:
         return None
     s = amount_str.strip().lower().replace(",", "")
     if "over" in s:
-        return 1_500_000.0
+        return 1_500_000.0  # Use 150% of the $1M lower bound as a midpoint heuristic
     nums = _re.findall(r"\$?([\d]+)", s)
     if len(nums) >= 2:
         return (float(nums[0]) + float(nums[1])) / 2
@@ -284,20 +283,30 @@ def _parse_house_json_records(records: list[dict], watchlist: set[str]) -> pl.Da
         ticker = str(rec.get("ticker", "")).upper().strip()
         if ticker not in watchlist:
             continue
-        amount_mid = _parse_amount_band(rec.get("amount", ""))
-        if amount_mid is None:
-            amount_mid = 0.0
-        amount_str = str(rec.get("amount", "")).replace(",", "")
-        nums = _re.findall(r"\$?([\d]+)", amount_str)
-        amount_low = float(nums[0]) if len(nums) >= 1 else 0.0
-        amount_high = float(nums[1]) if len(nums) >= 2 else amount_low
+        amount_str = str(rec.get("amount", ""))
+        amount_mid = _parse_amount_band(amount_str) or 0.0
+        # Extract low/high from same string for consistency
+        clean = amount_str.replace(",", "")
+        if "over" in clean.lower():
+            amount_low = 1_000_000.0
+            amount_high = 1_000_000.0  # lower bound only; mid = 1.5M per _parse_amount_band
+        else:
+            nums = _re.findall(r"\$?([\d]+)", clean)
+            amount_low = float(nums[0]) if len(nums) >= 1 else 0.0
+            amount_high = float(nums[1]) if len(nums) >= 2 else amount_low
 
         trade_date = rec.get("transaction_date") or rec.get("disclosure_date", "")
+        if not rec.get("transaction_date") and trade_date:
+            _LOG.debug("Using disclosure_date as trade_date for %s %s", ticker, trade_date)
         txn_type = str(rec.get("type", "")).lower()
         if "purchase" in txn_type or "buy" in txn_type:
             txn_type = "purchase"
         elif "sale" in txn_type or "sell" in txn_type:
             txn_type = "sale"
+
+        if txn_type not in ("purchase", "sale"):
+            _LOG.debug("Unknown transaction type %r for %s — skipping", txn_type, ticker)
+            continue
 
         rows.append({
             "ticker": ticker,
@@ -349,7 +358,6 @@ def fetch_congressional_trades_senate() -> pl.DataFrame:
     offset = 0
 
     while True:
-        time.sleep(1.0)  # Senate EFTS rate limit
         url = _SENATE_EFTS_URL.format(offset=offset)
         try:
             resp = requests.get(url, headers=_HEADERS, timeout=30)
@@ -366,7 +374,7 @@ def fetch_congressional_trades_senate() -> pl.DataFrame:
         for hit in hits:
             src = hit.get("_source", {})
             asset_name = str(src.get("asset_name", ""))
-            ticker_match = _re.search(r"\(([A-Z]{1,5})\)", asset_name)
+            ticker_match = _re.search(r"\(([A-Z]{2,5})\)", asset_name)
             if not ticker_match:
                 continue
             ticker = ticker_match.group(1)
@@ -379,11 +387,21 @@ def fetch_congressional_trades_senate() -> pl.DataFrame:
             elif "sale" in txn_type or "sell" in txn_type:
                 txn_type = "sale"
 
-            amount_mid = _parse_amount_band(src.get("amount", "")) or 0.0
-            amount_str = str(src.get("amount", "")).replace(",", "")
-            nums = _re.findall(r"\$?([\d]+)", amount_str)
-            amount_low = float(nums[0]) if len(nums) >= 1 else 0.0
-            amount_high = float(nums[1]) if len(nums) >= 2 else amount_low
+            if txn_type not in ("purchase", "sale"):
+                _LOG.debug("Unknown transaction type %r for %s — skipping", txn_type, ticker)
+                continue
+
+            amount_str = str(src.get("amount", ""))
+            amount_mid = _parse_amount_band(amount_str) or 0.0
+            # Extract low/high from same string for consistency
+            clean = amount_str.replace(",", "")
+            if "over" in clean.lower():
+                amount_low = 1_000_000.0
+                amount_high = 1_000_000.0  # lower bound only; mid = 1.5M per _parse_amount_band
+            else:
+                nums = _re.findall(r"\$?([\d]+)", clean)
+                amount_low = float(nums[0]) if len(nums) >= 1 else 0.0
+                amount_high = float(nums[1]) if len(nums) >= 2 else amount_low
 
             trade_date = src.get("transaction_date") or src.get("date", "")
             first_name = str(src.get("first_name", "")).strip()
@@ -406,6 +424,7 @@ def fetch_congressional_trades_senate() -> pl.DataFrame:
         if len(hits) < 100:
             break
         offset += 100
+        time.sleep(1.0)  # Rate limit: 1s between Senate EFTS pages
 
     if not all_rows:
         return _empty_congressional_df()
