@@ -11,6 +11,7 @@ Artifacts saved to models/artifacts/:
   ensemble_weights.json                        — {lgbm, rf, ridge} NNLS weights summing to 1
 """
 import json
+import logging
 import pickle
 from pathlib import Path
 
@@ -24,8 +25,11 @@ from sklearn.linear_model import Ridge
 from sklearn.preprocessing import StandardScaler
 
 from processing.fundamental_features import join_fundamentals
+from processing.insider_features import join_insider_features
 from processing.label_builder import build_labels
 from processing.price_features import build_price_features
+
+_LOG = logging.getLogger(__name__)
 
 # ── Feature columns ───────────────────────────────────────────────────────────
 # Order is locked — inference.py and feature_names.json must match.
@@ -38,7 +42,14 @@ FUND_FEATURE_COLS = [
     "revenue_growth_yoy", "gross_margin", "operating_margin",
     "capex_to_revenue", "debt_to_equity", "current_ratio",
 ]
-FEATURE_COLS = PRICE_FEATURE_COLS + FUND_FEATURE_COLS  # 15 features total
+INSIDER_FEATURE_COLS = [
+    "insider_cluster_buy_90d",
+    "insider_net_value_30d",
+    "insider_buy_sell_ratio_90d",
+    "congress_net_buy_90d",
+    "congress_trade_count_90d",
+]
+FEATURE_COLS = PRICE_FEATURE_COLS + FUND_FEATURE_COLS + INSIDER_FEATURE_COLS  # 20 features total
 
 
 # ── Data assembly ─────────────────────────────────────────────────────────────
@@ -65,6 +76,19 @@ def build_training_dataset(
 
     # Backward asof join: attach most recent quarterly fundamentals per row
     df = join_fundamentals(df, fundamentals_dir)
+
+    # Join insider signal features (backward asof join on ticker, date)
+    insider_features_dir = fundamentals_dir.parent / "insider_features"
+    if insider_features_dir.exists():
+        df = join_insider_features(df, insider_features_dir)
+    else:
+        _LOG.warning(
+            "Insider features directory not found at %s — "
+            "insider columns will be null. Run: python processing/insider_features.py",
+            insider_features_dir,
+        )
+        for col in INSIDER_FEATURE_COLS:
+            df = df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
 
     return (
         df.select(["ticker", "date"] + FEATURE_COLS + ["label_return_1y"])

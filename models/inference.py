@@ -18,8 +18,9 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from models.train import FEATURE_COLS
+from models.train import FEATURE_COLS, INSIDER_FEATURE_COLS
 from processing.fundamental_features import join_fundamentals
+from processing.insider_features import join_insider_features
 from processing.price_features import build_price_features
 
 
@@ -91,6 +92,14 @@ def run_inference(
 
     # ── Step 2: Fundamental features ─────────────────────────────────────────
     feature_df = join_fundamentals(price_df, fundamentals_dir)
+
+    # ── Step 2b: Insider signal features ─────────────────────────────────────
+    insider_features_dir = data_dir / "financials" / "insider_features"
+    if insider_features_dir.exists():
+        feature_df = join_insider_features(feature_df, insider_features_dir)
+    else:
+        for col in INSIDER_FEATURE_COLS:
+            feature_df = feature_df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
 
     # ── Step 3: Load and validate artifacts ──────────────────────────────────
     feature_names_saved = json.loads(
