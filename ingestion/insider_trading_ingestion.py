@@ -159,13 +159,6 @@ def _fetch_form4_xml(cik: str, accession: str, ticker: str) -> str:
     try:
         resp = requests.get(url, headers=_HEADERS, timeout=30)
         if resp.status_code == 404:
-            # Try fetching the filing index to find the actual form 4 document
-            index_url = f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik_num}&type=4&dateb=&owner=include&count=40&search_text="
-            # Simpler fallback: try common alternate filename
-            alt_url = f"https://www.sec.gov/Archives/edgar/data/{cik_num}/{accession}/form4.xml"
-            alt_resp = requests.get(alt_url, headers=_HEADERS, timeout=30)
-            if alt_resp.status_code == 200:
-                return alt_resp.text
             return ""
         resp.raise_for_status()
         return resp.text
