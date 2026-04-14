@@ -14,9 +14,9 @@ import json
 import pickle
 from pathlib import Path
 
-import duckdb
 import lightgbm as lgb
 import numpy as np
+import pandas as pd  # noqa: F401 — used for named-feature predict calls
 import polars as pl
 from scipy.optimize import nnls
 from sklearn.ensemble import RandomForestRegressor
@@ -25,6 +25,7 @@ from sklearn.preprocessing import StandardScaler
 
 from processing.fundamental_features import join_fundamentals
 from processing.label_builder import build_labels
+from processing.price_features import build_price_features
 
 # ── Feature columns ───────────────────────────────────────────────────────────
 # Order is locked — inference.py and feature_names.json must match.
@@ -42,48 +43,6 @@ FEATURE_COLS = PRICE_FEATURE_COLS + FUND_FEATURE_COLS  # 15 features total
 
 # ── Data assembly ─────────────────────────────────────────────────────────────
 
-def _build_price_features_all_dates(ohlcv_dir: Path) -> pl.DataFrame:
-    """
-    Compute windowed price features for every ticker×date row via DuckDB.
-    Returns DataFrame with columns: ticker, date, return_1d, return_5d,
-    return_20d, sma_20_deviation, volatility_20d, volume_ratio.
-    """
-    ohlcv_glob = str(ohlcv_dir / "*" / "*.parquet")
-    con = duckdb.connect()
-    try:
-        df = con.execute(f"""
-            WITH price AS (
-                SELECT
-                    ticker,
-                    date::date AS date,
-                    close_price / NULLIF(LAG(close_price, 1) OVER w, 0) - 1  AS return_1d,
-                    close_price / NULLIF(LAG(close_price, 5) OVER w, 0) - 1  AS return_5d,
-                    close_price / NULLIF(LAG(close_price, 20) OVER w, 0) - 1 AS return_20d,
-                    close_price / NULLIF(AVG(close_price) OVER (
-                        PARTITION BY ticker ORDER BY date
-                        ROWS BETWEEN 20 PRECEDING AND CURRENT ROW
-                    ), 0) - 1                                                 AS sma_20_deviation,
-                    STDDEV(close_price) OVER (
-                        PARTITION BY ticker ORDER BY date
-                        ROWS BETWEEN 20 PRECEDING AND CURRENT ROW
-                    ) / NULLIF(AVG(close_price) OVER (
-                        PARTITION BY ticker ORDER BY date
-                        ROWS BETWEEN 20 PRECEDING AND CURRENT ROW
-                    ), 0)                                                     AS volatility_20d,
-                    volume / NULLIF(AVG(CAST(volume AS DOUBLE)) OVER (
-                        PARTITION BY ticker ORDER BY date
-                        ROWS BETWEEN 20 PRECEDING AND CURRENT ROW
-                    ), 0)                                                     AS volume_ratio
-                FROM read_parquet('{ohlcv_glob}')
-                WINDOW w AS (PARTITION BY ticker ORDER BY date)
-            )
-            SELECT * FROM price
-        """).pl()
-    finally:
-        con.close()
-    return df.with_columns(pl.col("date").cast(pl.Date))
-
-
 def build_training_dataset(
     ohlcv_dir: Path,
     fundamentals_dir: Path,
@@ -98,7 +57,7 @@ def build_training_dataset(
     if labels.is_empty():
         return pl.DataFrame()
 
-    price_df = _build_price_features_all_dates(ohlcv_dir)
+    price_df = build_price_features(ohlcv_dir)
     price_features = price_df.select(["ticker", "date"] + PRICE_FEATURE_COLS)
 
     # Inner join: keep only rows with complete 252-day forward labels
@@ -217,12 +176,12 @@ def train(
         # LightGBM q50 (point estimate) — handles NaN natively (raw features)
         lgbm_fold = lgb.LGBMRegressor(
             objective="quantile", alpha=0.50, verbose=-1, **lgbm_base
-        ).fit(X_tr, y_tr)
+        ).fit(X_tr, y_tr, feature_name=FEATURE_COLS)
 
         rf_fold = RandomForestRegressor(**rf_base).fit(X_tr_imp, y_tr)
         ridge_fold = Ridge(alpha=1.0).fit(X_tr_sc, y_tr)
 
-        val_lgbm_preds.append(lgbm_fold.predict(X_val))
+        val_lgbm_preds.append(lgbm_fold.predict(pd.DataFrame(X_val, columns=FEATURE_COLS)))
         val_rf_preds.append(rf_fold.predict(X_val_imp))
         val_ridge_preds.append(ridge_fold.predict(X_val_sc))
         val_y_all.append(y_val)
@@ -246,13 +205,13 @@ def train(
 
     lgbm_q10 = lgb.LGBMRegressor(
         objective="quantile", alpha=0.10, verbose=-1, **lgbm_base
-    ).fit(X_all, y_all)
+    ).fit(X_all, y_all, feature_name=FEATURE_COLS)
     lgbm_q50 = lgb.LGBMRegressor(
         objective="quantile", alpha=0.50, verbose=-1, **lgbm_base
-    ).fit(X_all, y_all)
+    ).fit(X_all, y_all, feature_name=FEATURE_COLS)
     lgbm_q90 = lgb.LGBMRegressor(
         objective="quantile", alpha=0.90, verbose=-1, **lgbm_base
-    ).fit(X_all, y_all)
+    ).fit(X_all, y_all, feature_name=FEATURE_COLS)
     rf_model = RandomForestRegressor(**rf_base).fit(X_all_imp, y_all)
     ridge_model = Ridge(alpha=1.0).fit(X_all_sc, y_all)
 

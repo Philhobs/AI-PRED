@@ -136,3 +136,22 @@ def test_ensemble_weights_sum_to_one(tmp_path):
     assert weights["lgbm"] >= 0
     assert weights["rf"] >= 0
     assert weights["ridge"] >= 0
+
+
+def test_train_raises_on_insufficient_data(tmp_path):
+    """train() raises ValueError when data has fewer unique dates than 3*val_window+50."""
+    ohlcv_dir = tmp_path / "financials" / "ohlcv"
+    fund_dir = tmp_path / "financials" / "fundamentals"
+    artifacts_dir = tmp_path / "artifacts"
+    # 300 days → 300-252=48 labeled days; need 252*3+50=806 → should raise
+    _write_ohlcv_fixture(ohlcv_dir, TICKERS_FIXTURE, 300)
+    _write_fundamentals_fixture(fund_dir, TICKERS_FIXTURE)
+
+    from models.train import train
+    with pytest.raises(ValueError, match="Insufficient unique dates"):
+        train(
+            ohlcv_dir=ohlcv_dir,
+            fundamentals_dir=fund_dir,
+            artifacts_dir=artifacts_dir,
+            val_window_days=252,  # production default — 300 days is way too few
+        )

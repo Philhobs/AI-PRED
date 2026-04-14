@@ -14,12 +14,13 @@ import json
 import pickle
 from pathlib import Path
 
-import duckdb
 import numpy as np
+import pandas as pd
 import polars as pl
 
 from models.train import FEATURE_COLS
 from processing.fundamental_features import join_fundamentals
+from processing.price_features import build_price_features
 
 
 def _load_pickle(artifacts_dir: Path, name: str):
@@ -65,49 +66,28 @@ def run_inference(
     ohlcv_dir = data_dir / "financials" / "ohlcv"
     fundamentals_dir = data_dir / "financials" / "fundamentals"
 
-    # ── Step 1: Price features for today ─────────────────────────────────────
-    ohlcv_glob = str(ohlcv_dir / "*" / "*.parquet")
-    con = duckdb.connect()
-    try:
-        price_df = con.execute(f"""
-            WITH price AS (
-                SELECT
-                    ticker,
-                    date::date AS date,
-                    close_price / NULLIF(LAG(close_price, 1) OVER w, 0) - 1  AS return_1d,
-                    close_price / NULLIF(LAG(close_price, 5) OVER w, 0) - 1  AS return_5d,
-                    close_price / NULLIF(LAG(close_price, 20) OVER w, 0) - 1 AS return_20d,
-                    close_price / NULLIF(AVG(close_price) OVER (
-                        PARTITION BY ticker ORDER BY date
-                        ROWS BETWEEN 20 PRECEDING AND CURRENT ROW
-                    ), 0) - 1                                                 AS sma_20_deviation,
-                    STDDEV(close_price) OVER (
-                        PARTITION BY ticker ORDER BY date
-                        ROWS BETWEEN 20 PRECEDING AND CURRENT ROW
-                    ) / NULLIF(AVG(close_price) OVER (
-                        PARTITION BY ticker ORDER BY date
-                        ROWS BETWEEN 20 PRECEDING AND CURRENT ROW
-                    ), 0)                                                     AS volatility_20d,
-                    volume / NULLIF(AVG(CAST(volume AS DOUBLE)) OVER (
-                        PARTITION BY ticker ORDER BY date
-                        ROWS BETWEEN 20 PRECEDING AND CURRENT ROW
-                    ), 0)                                                     AS volume_ratio
-                FROM read_parquet('{ohlcv_glob}')
-                WINDOW w AS (PARTITION BY ticker ORDER BY date)
-            )
-            SELECT * FROM price
-            WHERE date = DATE '{date_str}'
-        """).pl()
-    finally:
-        con.close()
+    # ── Artifact existence check ──────────────────────────────────────────────
+    if not (artifacts_dir / "feature_names.json").exists():
+        raise FileNotFoundError(
+            f"No trained artifacts found at {artifacts_dir}. "
+            "Run 'python models/train.py' to train the ensemble first."
+        )
 
+    # ── Weekend guard ─────────────────────────────────────────────────────────
+    as_of = dt.date.fromisoformat(date_str)
+    if as_of.weekday() >= 5:  # 5=Saturday, 6=Sunday
+        raise ValueError(
+            f"{date_str} is a weekend — markets are closed. "
+            "Skip inference on non-trading days."
+        )
+
+    # ── Step 1: Price features for today ─────────────────────────────────────
+    price_df = build_price_features(ohlcv_dir, filter_date=date_str)
     if price_df.is_empty():
         raise RuntimeError(
             f"No price data found for {date_str}. "
             "Run ohlcv_ingestion.py to refresh data."
         )
-
-    price_df = price_df.with_columns(pl.col("date").cast(pl.Date))
 
     # ── Step 2: Fundamental features ─────────────────────────────────────────
     feature_df = join_fundamentals(price_df, fundamentals_dir)
@@ -138,13 +118,14 @@ def run_inference(
     # ── Step 4: Prepare feature matrix ───────────────────────────────────────
     tickers = feature_df["ticker"].to_list()
     X_raw = feature_df.select(FEATURE_COLS).to_numpy().astype(float)
+    X_raw_df = pd.DataFrame(X_raw, columns=FEATURE_COLS)
     X_imp = _impute(X_raw, imputation_medians)
     X_sc  = scaler.transform(X_imp)
 
     # ── Step 5: Predict ───────────────────────────────────────────────────────
-    lgbm_q10_preds = lgbm_q10.predict(X_raw)
-    lgbm_q50_preds = lgbm_q50.predict(X_raw)
-    lgbm_q90_preds = lgbm_q90.predict(X_raw)
+    lgbm_q10_preds = lgbm_q10.predict(X_raw_df)
+    lgbm_q50_preds = lgbm_q50.predict(X_raw_df)
+    lgbm_q90_preds = lgbm_q90.predict(X_raw_df)
     rf_preds       = rf_model.predict(X_imp)
     ridge_preds    = ridge_model.predict(X_sc)
 
@@ -156,7 +137,7 @@ def run_inference(
     )
 
     # ── Step 7: Rank and build output DataFrame ───────────────────────────────
-    as_of = dt.date.fromisoformat(date_str)
+    # as_of was computed earlier for the weekend guard
 
     result = (
         pl.DataFrame({
