@@ -1,13 +1,15 @@
 """
 Tests for the FastAPI serving layer (api/main.py).
 
-Six tests covering:
+Eight tests covering:
 1. /health returns 200 with correct fields when predictions exist
 2. /predictions/latest returns ranked list with expected fields
 3. /predictions/{ticker} returns history rows for a valid ticker
 4. /predictions/{ticker} returns 404 for unknown ticker
 5. /features/{ticker} returns 404 for unknown ticker
 6. /health returns 503 when no date=* subdirs exist
+7. /predictions/latest returns 503 when no date=* subdirs exist
+8. /features/{ticker} returns 503 when no OHLCV parquet files exist
 """
 import datetime
 import pytest
@@ -15,13 +17,10 @@ import polars as pl
 from fastapi.testclient import TestClient
 
 
-def make_client(predictions_dir):
-    """Patch PREDICTIONS_DIR on the module, create a TestClient, then restore."""
+def make_client():
+    """Create and return a TestClient for the API app."""
     import api.main as main_mod
-    original = main_mod.PREDICTIONS_DIR
-    main_mod.PREDICTIONS_DIR = predictions_dir
     client = TestClient(main_mod.app)
-    main_mod.PREDICTIONS_DIR = original
     return client, main_mod
 
 
@@ -52,8 +51,7 @@ def predictions_env(tmp_path_factory):
 
 def test_health_returns_ok(predictions_env):
     import api.main as main_mod
-    client, _ = make_client(predictions_env)
-    # Keep patch active during the request
+    client, _ = make_client()
     original = main_mod.PREDICTIONS_DIR
     main_mod.PREDICTIONS_DIR = predictions_env
     try:
@@ -71,7 +69,7 @@ def test_health_returns_ok(predictions_env):
 
 def test_predictions_latest_returns_ranked_list(predictions_env):
     import api.main as main_mod
-    client, _ = make_client(predictions_env)
+    client, _ = make_client()
     original = main_mod.PREDICTIONS_DIR
     main_mod.PREDICTIONS_DIR = predictions_env
     try:
@@ -92,7 +90,7 @@ def test_predictions_latest_returns_ranked_list(predictions_env):
 
 def test_predictions_ticker_returns_history(predictions_env):
     import api.main as main_mod
-    client, _ = make_client(predictions_env)
+    client, _ = make_client()
     original = main_mod.PREDICTIONS_DIR
     main_mod.PREDICTIONS_DIR = predictions_env
     try:
@@ -108,7 +106,7 @@ def test_predictions_ticker_returns_history(predictions_env):
 # ── Test 4: /predictions/{ticker} returns 404 for unknown ticker ───────────────
 
 def test_predictions_unknown_ticker_returns_404(predictions_env):
-    client, _ = make_client(predictions_env)
+    client, _ = make_client()
     resp = client.get("/predictions/FAKE")
     assert resp.status_code == 404
 
@@ -116,7 +114,7 @@ def test_predictions_unknown_ticker_returns_404(predictions_env):
 # ── Test 5: /features/{ticker} returns 404 for unknown ticker ─────────────────
 
 def test_features_unknown_ticker_returns_404(predictions_env):
-    client, _ = make_client(predictions_env)
+    client, _ = make_client()
     resp = client.get("/features/FAKE")
     assert resp.status_code == 404
 
@@ -127,11 +125,43 @@ def test_health_503_when_no_predictions(tmp_path):
     import api.main as main_mod
     empty_dir = tmp_path / "empty_preds"
     empty_dir.mkdir()
-    client, _ = make_client(empty_dir)
+    client, _ = make_client()
     original = main_mod.PREDICTIONS_DIR
     main_mod.PREDICTIONS_DIR = empty_dir
     try:
         resp = client.get("/health")
     finally:
         main_mod.PREDICTIONS_DIR = original
+    assert resp.status_code == 503
+
+
+# ── Test 7: /predictions/latest returns 503 when no date=* subdirs ────────────
+
+def test_predictions_latest_503_when_no_predictions(tmp_path):
+    import api.main as main_mod
+    empty_dir = tmp_path / "empty_preds"
+    empty_dir.mkdir()
+    client, _ = make_client()
+    original = main_mod.PREDICTIONS_DIR
+    main_mod.PREDICTIONS_DIR = empty_dir
+    try:
+        resp = client.get("/predictions/latest")
+    finally:
+        main_mod.PREDICTIONS_DIR = original
+    assert resp.status_code == 503
+
+
+# ── Test 8: /features/{ticker} returns 503 when no OHLCV parquet files ────────
+
+def test_features_ticker_503_when_no_ohlcv(tmp_path):
+    import api.main as main_mod
+    empty_ohlcv_dir = tmp_path / "empty_ohlcv"
+    empty_ohlcv_dir.mkdir()
+    client, _ = make_client()
+    original = main_mod.OHLCV_DIR
+    main_mod.OHLCV_DIR = empty_ohlcv_dir
+    try:
+        resp = client.get("/features/NVDA")
+    finally:
+        main_mod.OHLCV_DIR = original
     assert resp.status_code == 503
