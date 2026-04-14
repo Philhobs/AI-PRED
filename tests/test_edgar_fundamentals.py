@@ -1,5 +1,6 @@
 """Unit tests for ingestion/edgar_fundamentals_ingestion.py — no network calls."""
 import datetime
+from unittest.mock import patch, MagicMock
 import polars as pl
 import pytest
 
@@ -8,6 +9,7 @@ from ingestion.edgar_fundamentals_ingestion import (
     _filter_annual,
     _compute_derived,
     _compute_valuation_ratios,
+    _fetch_xbrl,
     ANNUAL_FILERS,
     CIK_MAP,
 )
@@ -65,3 +67,25 @@ def test_filter_annual_keeps_365day_and_excludes_quarterly():
     assert "2023-12-31" in ends
     assert "2022-12-31" in ends
     assert "2023-03-31" not in ends
+
+
+# ── Test: records with start=None are excluded ────────────────────────────────
+
+def test_filter_quarterly_excludes_no_start_records():
+    """Balance-sheet snapshot records have no 'start' — they must be excluded."""
+    no_start = {"start": None, "end": "2023-03-31", "val": 99_000_000_000,
+                "filed": "2023-05-01", "form": "10-Q", "accn": "0001234567-23-001"}
+    result = _filter_quarterly([Q1, no_start])
+    assert len(result) == 1
+    assert result[0]["val"] == 15_000_000_000  # only Q1 kept
+
+
+# ── Test: _fetch_xbrl returns [] on 404 ──────────────────────────────────────
+
+def test_fetch_xbrl_returns_empty_on_404():
+    """404 means concept not reported by this company — should return []."""
+    mock_resp = MagicMock()
+    mock_resp.status_code = 404
+    with patch("ingestion.edgar_fundamentals_ingestion.requests.get", return_value=mock_resp):
+        result = _fetch_xbrl("0000789019", "NonExistentConcept")
+    assert result == []

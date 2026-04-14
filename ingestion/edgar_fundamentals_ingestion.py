@@ -8,6 +8,7 @@ fundamental_ingestion.py) and writes to:
 
 No downstream changes required — fundamental_features.py reads the same path.
 """
+import logging
 import time
 import datetime
 from pathlib import Path
@@ -16,6 +17,8 @@ import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
 import requests
+
+_LOG = logging.getLogger(__name__)
 
 # ── CIK map ───────────────────────────────────────────────────────────────────
 
@@ -107,7 +110,8 @@ def _fetch_xbrl(cik: str, concept: str) -> list[dict]:
         if resp.status_code == 404:
             return []
         resp.raise_for_status()
-    except requests.exceptions.RequestException:
+    except requests.exceptions.RequestException as exc:
+        _LOG.warning("[EDGAR] fetch failed for %s/%s: %s", cik, concept, exc)
         return []
 
     units = resp.json().get("units", {}).get("USD", [])
