@@ -105,3 +105,66 @@ def test_to_period_series_returns_polars_df():
     assert df.schema["revenue"] == pl.Float64
     # Values must match fixture
     assert df.sort("period_end")["revenue"].to_list() == [15_000_000_000.0, 16_000_000_000.0]
+
+
+# ── Fixtures for derived metrics ──────────────────────────────────────────────
+
+_INCOME_FIXTURE = pl.DataFrame({
+    "period_end":       pl.Series([
+        datetime.date(2022, 3, 31), datetime.date(2022, 6, 30),
+        datetime.date(2022, 9, 30), datetime.date(2022, 12, 31),
+        datetime.date(2023, 3, 31),
+    ], dtype=pl.Date),
+    "revenue":          [10_000.0, 10_500.0, 11_000.0, 11_500.0, 12_000.0],
+    "gross_profit":     [ 6_000.0,  6_300.0,  6_600.0,  6_900.0,  7_200.0],
+    "operating_income": [ 3_000.0,  3_150.0,  3_300.0,  3_450.0,  3_600.0],
+    "net_income":       [ 2_500.0,  2_625.0,  2_750.0,  2_875.0,  3_000.0],
+    "capex":            [   500.0,    525.0,    550.0,    575.0,    600.0],
+})
+
+_BALANCE_FIXTURE = pl.DataFrame({
+    "period_end":          pl.Series([
+        datetime.date(2022, 3, 31), datetime.date(2022, 6, 30),
+        datetime.date(2022, 9, 30), datetime.date(2022, 12, 31),
+        datetime.date(2023, 3, 31),
+    ], dtype=pl.Date),
+    "equity":              [50_000.0, 52_000.0, 54_000.0, 56_000.0, 58_000.0],
+    "long_term_debt":      [10_000.0, 10_000.0, 10_000.0, 10_000.0, 10_000.0],
+    "current_assets":      [20_000.0, 21_000.0, 22_000.0, 23_000.0, 24_000.0],
+    "current_liabilities": [8_000.0,  8_400.0,  8_800.0,  9_200.0,  9_600.0],
+    "shares_outstanding":  [1_000.0,  1_000.0,  1_000.0,  1_000.0,  1_000.0],
+})
+
+
+# ── Test: derived margins are computed correctly ───────────────────────────────
+
+def test_compute_derived_metrics():
+    df = _compute_derived(_INCOME_FIXTURE, _BALANCE_FIXTURE)
+    # Q1 2023 row
+    q = df.filter(pl.col("period_end") == datetime.date(2023, 3, 31))
+    assert len(q) == 1
+    row = q.row(0, named=True)
+    # gross_margin = 7200 / 12000
+    assert abs(row["gross_margin"] - 0.60) < 1e-6
+    # operating_margin = 3600 / 12000
+    assert abs(row["operating_margin"] - 0.30) < 1e-6
+    # capex_to_revenue = 600 / 12000
+    assert abs(row["capex_to_revenue"] - 0.05) < 1e-6
+    # debt_to_equity = 10000 / 58000
+    assert abs(row["debt_to_equity"] - (10_000.0 / 58_000.0)) < 1e-6
+    # current_ratio = 24000 / 9600
+    assert abs(row["current_ratio"] - 2.5) < 1e-6
+
+
+# ── Test: revenue_growth_yoy looks back 4 quarters ───────────────────────────
+
+def test_compute_derived_revenue_growth_yoy():
+    df = _compute_derived(_INCOME_FIXTURE, _BALANCE_FIXTURE)
+    q = df.filter(pl.col("period_end") == datetime.date(2023, 3, 31))
+    row = q.row(0, named=True)
+    # Q1 2023 revenue = 12000, Q1 2022 revenue = 10000
+    # growth = (12000 - 10000) / 10000 = 0.20
+    assert abs(row["revenue_growth_yoy"] - 0.20) < 1e-6
+    # Q1 2022 has no prior year — should be null
+    q_2022 = df.filter(pl.col("period_end") == datetime.date(2022, 3, 31))
+    assert q_2022["revenue_growth_yoy"][0] is None

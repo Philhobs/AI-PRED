@@ -326,7 +326,70 @@ def _build_balance_df(cik: str, ticker: str) -> pl.DataFrame:
 # ── Placeholder stubs (implemented in later tasks) ────────────────────────────
 
 def _compute_derived(income: pl.DataFrame, balance: pl.DataFrame) -> pl.DataFrame:
-    raise NotImplementedError("implemented in Task 3")
+    """
+    Join income + balance sheet on period_end (left join — keep all income dates).
+    Compute 6 derived metrics + revenue_growth_yoy (4-quarter lag).
+
+    Returns DataFrame: [period_end, revenue, net_income, shares_outstanding,
+                        revenue_growth_yoy, gross_margin, operating_margin,
+                        capex_to_revenue, debt_to_equity, current_ratio]
+    plus income/balance columns needed for valuation ratios downstream.
+    """
+    if income.is_empty() or balance.is_empty():
+        return pl.DataFrame()
+
+    df = income.join(balance, on="period_end", how="left").sort("period_end")
+
+    # Revenue YoY: shift(4) gives the value 4 rows back (same quarter prior year)
+    df = df.with_columns(
+        pl.col("revenue").shift(4).alias("revenue_4q_prior")
+    )
+
+    df = df.with_columns([
+        # revenue_growth_yoy
+        pl.when(
+            pl.col("revenue_4q_prior").is_not_null() & (pl.col("revenue_4q_prior") != 0)
+        )
+        .then(
+            (pl.col("revenue") - pl.col("revenue_4q_prior")) / pl.col("revenue_4q_prior").abs()
+        )
+        .otherwise(None)
+        .alias("revenue_growth_yoy"),
+
+        # gross_margin
+        pl.when(pl.col("revenue").is_not_null() & (pl.col("revenue") != 0))
+        .then(pl.col("gross_profit") / pl.col("revenue"))
+        .otherwise(None)
+        .alias("gross_margin"),
+
+        # operating_margin
+        pl.when(pl.col("revenue").is_not_null() & (pl.col("revenue") != 0))
+        .then(pl.col("operating_income") / pl.col("revenue"))
+        .otherwise(None)
+        .alias("operating_margin"),
+
+        # capex_to_revenue
+        pl.when(pl.col("revenue").is_not_null() & (pl.col("revenue") != 0))
+        .then(pl.col("capex") / pl.col("revenue"))
+        .otherwise(None)
+        .alias("capex_to_revenue"),
+
+        # debt_to_equity
+        pl.when(pl.col("equity").is_not_null() & (pl.col("equity") > 0))
+        .then(pl.col("long_term_debt") / pl.col("equity"))
+        .otherwise(None)
+        .alias("debt_to_equity"),
+
+        # current_ratio
+        pl.when(
+            pl.col("current_liabilities").is_not_null() & (pl.col("current_liabilities") != 0)
+        )
+        .then(pl.col("current_assets") / pl.col("current_liabilities"))
+        .otherwise(None)
+        .alias("current_ratio"),
+    ])
+
+    return df.drop("revenue_4q_prior")
 
 
 def _compute_valuation_ratios(df: pl.DataFrame, ticker: str, ohlcv_dir: Path) -> pl.DataFrame:
