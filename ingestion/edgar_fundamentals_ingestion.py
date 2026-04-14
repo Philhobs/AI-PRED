@@ -403,5 +403,95 @@ def _compute_derived(income: pl.DataFrame, balance: pl.DataFrame) -> pl.DataFram
     return df.drop("revenue_4q_prior")
 
 
-def _compute_valuation_ratios(df: pl.DataFrame, ticker: str, ohlcv_dir: Path) -> pl.DataFrame:
-    raise NotImplementedError("implemented in Task 4")
+def _load_ohlcv(ticker: str, ohlcv_dir: Path) -> pl.DataFrame:
+    """
+    Load full OHLCV price history for one ticker.
+    Returns DataFrame [date (Date), close_price (Float64)] sorted by date.
+    Returns empty DataFrame if no parquet files found.
+    """
+    ticker_dir = ohlcv_dir / ticker
+    files = list(ticker_dir.glob("*.parquet")) if ticker_dir.exists() else []
+    if not files:
+        return pl.DataFrame({"date": pl.Series([], dtype=pl.Date),
+                             "close_price": pl.Series([], dtype=pl.Float64)})
+    return (
+        pl.concat([pl.read_parquet(str(f)) for f in files])
+        .select(["date", "close_price"])
+        .with_columns(pl.col("date").cast(pl.Date))
+        .sort("date")
+    )
+
+
+def _compute_valuation_ratios(
+    df: pl.DataFrame,
+    ticker: str,
+    ohlcv_dir: Path,
+) -> pl.DataFrame:
+    """
+    Add pe_ratio_trailing, price_to_sales, price_to_book to df.
+
+    For each period_end:
+      - Look up close_price (backward asof join on OHLCV)
+      - market_cap = close_price × shares_outstanding
+      - TTM_revenue = rolling_sum(4) of quarterly revenues
+      - TTM_net_income = rolling_sum(4) of quarterly net incomes
+      - pe_ratio_trailing = market_cap / TTM_net_income  (null if <= 0)
+      - price_to_sales    = market_cap / TTM_revenue      (null if <= 0)
+      - price_to_book     = market_cap / equity            (null if <= 0)
+    """
+    ohlcv = _load_ohlcv(ticker, ohlcv_dir)
+
+    if ohlcv.is_empty() or "shares_outstanding" not in df.columns:
+        return df.with_columns([
+            pl.lit(None).cast(pl.Float64).alias("pe_ratio_trailing"),
+            pl.lit(None).cast(pl.Float64).alias("price_to_sales"),
+            pl.lit(None).cast(pl.Float64).alias("price_to_book"),
+        ])
+
+    # TTM income figures via rolling sum of 4 quarters
+    df = df.sort("period_end").with_columns([
+        pl.col("revenue").rolling_sum(window_size=4, min_samples=4).alias("ttm_revenue"),
+        pl.col("net_income").rolling_sum(window_size=4, min_samples=4).alias("ttm_net_income"),
+    ])
+
+    # Backward asof join: for each period_end, find most recent close_price
+    df = df.join_asof(
+        ohlcv.rename({"date": "period_end"}),
+        on="period_end",
+        strategy="backward",
+    )
+
+    # market_cap
+    df = df.with_columns(
+        (pl.col("close_price") * pl.col("shares_outstanding")).alias("market_cap")
+    )
+
+    # Valuation ratios
+    df = df.with_columns([
+        pl.when(
+            pl.col("ttm_net_income").is_not_null() & (pl.col("ttm_net_income") > 0)
+            & pl.col("market_cap").is_not_null()
+        )
+        .then(pl.col("market_cap") / pl.col("ttm_net_income"))
+        .otherwise(None)
+        .alias("pe_ratio_trailing"),
+
+        pl.when(
+            pl.col("ttm_revenue").is_not_null() & (pl.col("ttm_revenue") > 0)
+            & pl.col("market_cap").is_not_null()
+        )
+        .then(pl.col("market_cap") / pl.col("ttm_revenue"))
+        .otherwise(None)
+        .alias("price_to_sales"),
+
+        pl.when(
+            pl.col("equity").is_not_null() & (pl.col("equity") > 0)
+            & pl.col("market_cap").is_not_null()
+        )
+        .then(pl.col("market_cap") / pl.col("equity"))
+        .otherwise(None)
+        .alias("price_to_book"),
+    ])
+
+    return df.drop(["market_cap", "ttm_revenue", "ttm_net_income",
+                    "close_price"], strict=False)

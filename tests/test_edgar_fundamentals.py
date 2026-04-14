@@ -209,3 +209,57 @@ def test_compute_derived_yoy_handles_missing_quarter():
     # With calendar-aware join, this correctly computes 0.20
     assert row["revenue_growth_yoy"] is not None
     assert abs(row["revenue_growth_yoy"] - 0.20) < 1e-6
+
+
+# ── Fixtures for valuation ratio tests ───────────────────────────────────────
+
+# Use the already-defined _INCOME_FIXTURE and _BALANCE_FIXTURE from Task 3
+# Build derived df from fixtures
+_DERIVED_FIXTURE = _compute_derived(_INCOME_FIXTURE, _BALANCE_FIXTURE)
+
+# Fake OHLCV data — monkeypatched via _load_ohlcv
+_OHLCV_DF = pl.DataFrame({
+    "date": pl.Series([
+        datetime.date(2022, 3, 31), datetime.date(2022, 6, 30),
+        datetime.date(2022, 9, 30), datetime.date(2022, 12, 31),
+        datetime.date(2023, 3, 31),
+    ], dtype=pl.Date),
+    "close_price": [100.0, 105.0, 110.0, 115.0, 120.0],
+})
+
+
+# ── Test: valuation ratios computed correctly ─────────────────────────────────
+
+def test_compute_valuation_ratios(monkeypatch, tmp_path):
+    import ingestion.edgar_fundamentals_ingestion as mod
+    monkeypatch.setattr(mod, "_load_ohlcv", lambda ticker, ohlcv_dir: _OHLCV_DF)
+
+    df = _compute_valuation_ratios(_DERIVED_FIXTURE, "FAKE", tmp_path)
+    q = df.filter(pl.col("period_end") == datetime.date(2023, 3, 31))
+    row = q.row(0, named=True)
+
+    # market_cap = 120 * 1000 = 120_000
+    # TTM_revenue = 10500 + 11000 + 11500 + 12000 = 45000
+    # TTM_net_income = 2625 + 2750 + 2875 + 3000 = 11250
+    # equity = 58000
+    assert abs(row["price_to_sales"]    - (120_000.0 / 45_000.0)) < 1e-4
+    assert abs(row["pe_ratio_trailing"] - (120_000.0 / 11_250.0)) < 1e-4
+    assert abs(row["price_to_book"]     - (120_000.0 / 58_000.0)) < 1e-4
+
+
+# ── Test: PE is null when TTM net income is negative ─────────────────────────
+
+def test_valuation_ratios_null_on_negative_earnings(monkeypatch, tmp_path):
+    import ingestion.edgar_fundamentals_ingestion as mod
+    monkeypatch.setattr(mod, "_load_ohlcv", lambda ticker, ohlcv_dir: _OHLCV_DF)
+
+    # Make net_income negative for all rows
+    neg_income = _INCOME_FIXTURE.with_columns(
+        pl.col("net_income") * -1
+    )
+    derived = _compute_derived(neg_income, _BALANCE_FIXTURE)
+    df = _compute_valuation_ratios(derived, "FAKE", tmp_path)
+    # All PE values should be null
+    assert df["pe_ratio_trailing"].is_null().all()
+    # P/S and P/B should still be computed (revenue and equity are positive)
+    assert df["price_to_sales"].is_not_null().any()
