@@ -155,102 +155,101 @@ def compute_insider_features(
     Returns DataFrame: [ticker, date, insider_cluster_buy_90d, insider_net_value_30d,
                         insider_buy_sell_ratio_90d, congress_net_buy_90d, congress_trade_count_90d]
     """
-    con = duckdb.connect()
+    with duckdb.connect() as con:
+        # Load insider trades
+        insider_parquets = list(insider_trades_dir.glob("*/transactions.parquet")) if insider_trades_dir.exists() else []
+        if insider_parquets:
+            insider_glob = str(insider_trades_dir / "*" / "transactions.parquet")
+            con.execute("CREATE TABLE insider AS SELECT * FROM read_parquet(?)", [insider_glob])
+        else:
+            con.execute("""
+                CREATE TABLE insider (
+                    ticker VARCHAR, transaction_date DATE,
+                    insider_name VARCHAR, transaction_code VARCHAR, value DOUBLE
+                )
+            """)
+            _LOG.warning("No insider trade parquets found in %s", insider_trades_dir)
 
-    # Load insider trades
-    insider_parquets = list(insider_trades_dir.glob("*/transactions.parquet")) if insider_trades_dir.exists() else []
-    if insider_parquets:
-        insider_glob = str(insider_trades_dir / "*" / "transactions.parquet")
-        con.execute("CREATE TABLE insider AS SELECT * FROM read_parquet(?)", [insider_glob])
-    else:
+        # Load congressional trades
+        if congressional_trades_path.exists():
+            con.execute("CREATE TABLE congress AS SELECT * FROM read_parquet(?)", [str(congressional_trades_path)])
+        else:
+            con.execute("""
+                CREATE TABLE congress (
+                    ticker VARCHAR, trade_date DATE,
+                    transaction_type VARCHAR, amount_mid DOUBLE
+                )
+            """)
+            _LOG.warning("No congressional trades parquet found at %s", congressional_trades_path)
+
+        # Build OHLCV spine
+        ohlcv_parquets = list(ohlcv_dir.glob("**/*.parquet"))
+        if not ohlcv_parquets:
+            _LOG.error("No OHLCV parquets found in %s", ohlcv_dir)
+            return pl.DataFrame()
+
+        ohlcv_glob = str(ohlcv_dir / "**" / "*.parquet")
         con.execute("""
-            CREATE TABLE insider (
-                ticker VARCHAR, transaction_date DATE,
-                insider_name VARCHAR, transaction_code VARCHAR, value DOUBLE
-            )
-        """)
-        _LOG.warning("No insider trade parquets found in %s", insider_trades_dir)
+            CREATE TABLE spine AS
+            SELECT DISTINCT ticker, date
+            FROM read_parquet(?)
+            ORDER BY ticker, date
+        """, [ohlcv_glob])
 
-    # Load congressional trades
-    if congressional_trades_path.exists():
-        con.execute("CREATE TABLE congress AS SELECT * FROM read_parquet(?)", [str(congressional_trades_path)])
-    else:
-        con.execute("""
-            CREATE TABLE congress (
-                ticker VARCHAR, trade_date DATE,
-                transaction_type VARCHAR, amount_mid DOUBLE
-            )
-        """)
-        _LOG.warning("No congressional trades parquet found at %s", congressional_trades_path)
+        result_df = con.execute("""
+            SELECT
+                s.ticker,
+                s.date,
 
-    # Build OHLCV spine
-    ohlcv_parquets = list(ohlcv_dir.glob("**/*.parquet"))
-    if not ohlcv_parquets:
-        _LOG.error("No OHLCV parquets found in %s", ohlcv_dir)
-        return pl.DataFrame()
+                -- insider_cluster_buy_90d: distinct buyers in 90-day window
+                NULLIF(
+                    COUNT(DISTINCT CASE WHEN i90.transaction_code = 'P' THEN i90.insider_name END),
+                    0
+                ) AS insider_cluster_buy_90d,
 
-    ohlcv_glob = str(ohlcv_dir / "**" / "*.parquet")
-    con.execute("""
-        CREATE TABLE spine AS
-        SELECT DISTINCT ticker, date
-        FROM read_parquet(?)
-        ORDER BY ticker, date
-    """, [ohlcv_glob])
+                -- insider_net_value_30d: net buy value in millions over 30-day window
+                CASE WHEN COUNT(i30.transaction_code) = 0 THEN NULL
+                ELSE (
+                    COALESCE(SUM(CASE WHEN i30.transaction_code = 'P' THEN i30.value ELSE 0 END), 0.0)
+                    - COALESCE(SUM(CASE WHEN i30.transaction_code = 'S' THEN i30.value ELSE 0 END), 0.0)
+                ) / 1000000.0 END AS insider_net_value_30d,
 
-    result_df = con.execute("""
-        SELECT
-            s.ticker,
-            s.date,
+                -- insider_buy_sell_ratio_90d: purchase fraction in 90-day window
+                CASE WHEN COUNT(i90.transaction_code) = 0 THEN NULL
+                ELSE CAST(
+                    COUNT(CASE WHEN i90.transaction_code = 'P' THEN 1 END) AS DOUBLE
+                ) / COUNT(i90.transaction_code) END AS insider_buy_sell_ratio_90d,
 
-            -- insider_cluster_buy_90d: distinct buyers in 90-day window
-            NULLIF(
-                COUNT(DISTINCT CASE WHEN i90.transaction_code = 'P' THEN i90.insider_name END),
-                0
-            ) AS insider_cluster_buy_90d,
+                -- congress_net_buy_90d: net congressional buy in millions over 90 days
+                CASE WHEN COUNT(c90.transaction_type) = 0 THEN NULL
+                ELSE (
+                    COALESCE(SUM(CASE WHEN c90.transaction_type = 'purchase' THEN c90.amount_mid ELSE 0 END), 0.0)
+                    - COALESCE(SUM(CASE WHEN c90.transaction_type = 'sale' THEN c90.amount_mid ELSE 0 END), 0.0)
+                ) / 1000000.0 END AS congress_net_buy_90d,
 
-            -- insider_net_value_30d: net buy value in millions over 30-day window
-            CASE WHEN COUNT(i30.transaction_code) = 0 THEN NULL
-            ELSE (
-                COALESCE(SUM(CASE WHEN i30.transaction_code = 'P' THEN i30.value ELSE 0 END), 0.0)
-                - COALESCE(SUM(CASE WHEN i30.transaction_code = 'S' THEN i30.value ELSE 0 END), 0.0)
-            ) / 1000000.0 END AS insider_net_value_30d,
+                -- congress_trade_count_90d: total congressional trades in 90 days
+                NULLIF(COUNT(c90.transaction_type), 0) AS congress_trade_count_90d
 
-            -- insider_buy_sell_ratio_90d: purchase fraction in 90-day window
-            CASE WHEN COUNT(i90.transaction_code) = 0 THEN NULL
-            ELSE CAST(
-                COUNT(CASE WHEN i90.transaction_code = 'P' THEN 1 END) AS DOUBLE
-            ) / COUNT(i90.transaction_code) END AS insider_buy_sell_ratio_90d,
+            FROM spine s
 
-            -- congress_net_buy_90d: net congressional buy in millions over 90 days
-            CASE WHEN COUNT(c90.transaction_type) = 0 THEN NULL
-            ELSE (
-                COALESCE(SUM(CASE WHEN c90.transaction_type = 'purchase' THEN c90.amount_mid ELSE 0 END), 0.0)
-                - COALESCE(SUM(CASE WHEN c90.transaction_type = 'sale' THEN c90.amount_mid ELSE 0 END), 0.0)
-            ) / 1000000.0 END AS congress_net_buy_90d,
+            -- 90-day insider window
+            LEFT JOIN insider i90
+                ON i90.ticker = s.ticker
+               AND i90.transaction_date BETWEEN s.date - INTERVAL 90 DAY AND s.date
 
-            -- congress_trade_count_90d: total congressional trades in 90 days
-            NULLIF(COUNT(c90.transaction_type), 0) AS congress_trade_count_90d
+            -- 30-day insider window (separate join for different window)
+            LEFT JOIN insider i30
+                ON i30.ticker = s.ticker
+               AND i30.transaction_date BETWEEN s.date - INTERVAL 30 DAY AND s.date
 
-        FROM spine s
+            -- 90-day congressional window
+            LEFT JOIN congress c90
+                ON c90.ticker = s.ticker
+               AND c90.trade_date BETWEEN s.date - INTERVAL 90 DAY AND s.date
 
-        -- 90-day insider window
-        LEFT JOIN insider i90
-            ON i90.ticker = s.ticker
-           AND i90.transaction_date BETWEEN s.date - INTERVAL 90 DAY AND s.date
-
-        -- 30-day insider window (separate join for different window)
-        LEFT JOIN insider i30
-            ON i30.ticker = s.ticker
-           AND i30.transaction_date BETWEEN s.date - INTERVAL 30 DAY AND s.date
-
-        -- 90-day congressional window
-        LEFT JOIN congress c90
-            ON c90.ticker = s.ticker
-           AND c90.trade_date BETWEEN s.date - INTERVAL 90 DAY AND s.date
-
-        GROUP BY s.ticker, s.date
-        ORDER BY s.ticker, s.date
-    """).pl()
+            GROUP BY s.ticker, s.date
+            ORDER BY s.ticker, s.date
+        """).pl()
 
     _LOG.info(
         "Computed insider features: %d rows for %d tickers",

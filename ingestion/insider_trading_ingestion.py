@@ -289,7 +289,7 @@ def _parse_house_json_records(records: list[dict], watchlist: set[str]) -> pl.Da
         clean = amount_str.replace(",", "")
         if "over" in clean.lower():
             amount_low = 1_000_000.0
-            amount_high = 1_000_000.0  # lower bound only; mid = 1.5M per _parse_amount_band
+            amount_high = float("inf")  # upper bound not disclosed
         else:
             nums = _re.findall(r"\$?([\d]+)", clean)
             amount_low = float(nums[0]) if len(nums) >= 1 else 0.0
@@ -397,7 +397,7 @@ def fetch_congressional_trades_senate() -> pl.DataFrame:
             clean = amount_str.replace(",", "")
             if "over" in clean.lower():
                 amount_low = 1_000_000.0
-                amount_high = 1_000_000.0  # lower bound only; mid = 1.5M per _parse_amount_band
+                amount_high = float("inf")  # upper bound not disclosed
             else:
                 nums = _re.findall(r"\$?([\d]+)", clean)
                 amount_low = float(nums[0]) if len(nums) >= 1 else 0.0

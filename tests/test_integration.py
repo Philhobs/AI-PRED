@@ -60,3 +60,18 @@ def test_fetch_form4_nvda():
     }
     assert expected_cols.issubset(set(df.columns))
     assert set(df["transaction_code"].unique().to_list()).issubset({"P", "S"})
+
+
+@pytest.mark.integration
+def test_fetch_congressional_house():
+    """Real House Stock Watcher fetch — >=100 records, all required columns present."""
+    from ingestion.insider_trading_ingestion import fetch_congressional_trades_house
+    df = fetch_congressional_trades_house()
+    assert isinstance(df, pl.DataFrame)
+    assert len(df) >= 100, f"Expected >=100 rows, got {len(df)}"
+    expected_cols = {
+        "ticker", "trade_date", "politician_name", "chamber",
+        "party", "transaction_type", "amount_low", "amount_high", "amount_mid",
+    }
+    assert expected_cols.issubset(set(df.columns))
+    assert set(df["chamber"].unique().to_list()) == {"house"}
