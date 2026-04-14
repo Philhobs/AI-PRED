@@ -7,6 +7,7 @@ Congressional trades: House Stock Watcher bulk JSON + Senate EFTS paginated API.
 from __future__ import annotations
 
 import logging
+import re
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -24,6 +25,9 @@ _OPEN_MARKET_CODES = {"P", "S"}
 
 def _parse_form4_xml(xml_text: str, ticker: str, filed_date: str) -> list[dict]:
     """Parse Form 4 XML. Returns list of dicts for P/S transactions only."""
+    # Strip XML namespaces so XPath expressions work on all EDGAR variants
+    xml_text = re.sub(r' xmlns(?::\w+)?="[^"]*"', '', xml_text)
+
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError:
@@ -68,12 +72,14 @@ def _parse_form4_xml(xml_text: str, ticker: str, filed_date: str) -> list[dict]:
             shares = float(shares_el.text)
             price = float(price_el.text)
         except (ValueError, TypeError):
+            _LOG.debug("Skipping transaction for %s: non-numeric shares=%r price=%r",
+                       ticker, shares_el.text, price_el.text)
             continue
 
         rows.append({
             "ticker": ticker,
             "filed_date": filed_date,
-            "transaction_date": date_el.text.strip(),
+            "transaction_date": (date_el.text or "").strip(),
             "insider_name": insider_name,
             "insider_title": insider_title,
             "transaction_code": code,

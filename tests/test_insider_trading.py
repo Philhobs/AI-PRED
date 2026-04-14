@@ -70,3 +70,39 @@ def test_parse_form4_xml_purchase():
 def test_parse_form4_xml_excludes_grants():
     rows = _parse_form4_xml(GRANT_XML, ticker="NVDA", filed_date="2024-01-15")
     assert rows == []
+
+
+def test_parse_form4_xml_sale():
+    """Code S (sale) is included in output."""
+    sale_xml = PURCHASE_XML.replace("<transactionCode>P</transactionCode>",
+                                    "<transactionCode>S</transactionCode>")
+    rows = _parse_form4_xml(sale_xml, ticker="NVDA", filed_date="2024-01-15")
+    assert len(rows) == 1
+    assert rows[0]["transaction_code"] == "S"
+
+
+def test_parse_form4_xml_parse_error():
+    """Malformed XML returns empty list (no exception raised)."""
+    rows = _parse_form4_xml("not valid xml <<<", ticker="NVDA", filed_date="2024-01-15")
+    assert rows == []
+
+
+def test_parse_form4_xml_empty_value_tag():
+    """Empty <value/> in transactionDate is handled gracefully (row skipped or date is empty string)."""
+    xml = PURCHASE_XML.replace("<value>2024-01-14</value>", "<value/>")
+    # Replacing date value element — should either skip the transaction or return empty string date
+    rows = _parse_form4_xml(xml, ticker="NVDA", filed_date="2024-01-15")
+    # Either 0 rows (if we want to skip) or 1 row with empty date — either is acceptable
+    # The important thing is it does not raise AttributeError
+    assert isinstance(rows, list)
+
+
+def test_parse_form4_xml_with_namespace():
+    """XML with namespace declaration is parsed correctly (namespace stripped)."""
+    namespaced_xml = PURCHASE_XML.replace(
+        "<ownershipDocument>",
+        '<ownershipDocument xmlns="http://www.sec.gov/cgi-bin/browse-edgar">'
+    )
+    rows = _parse_form4_xml(namespaced_xml, ticker="NVDA", filed_date="2024-01-15")
+    assert len(rows) == 1
+    assert rows[0]["transaction_code"] == "P"
