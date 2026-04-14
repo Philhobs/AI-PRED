@@ -10,6 +10,7 @@ from ingestion.edgar_fundamentals_ingestion import (
     _compute_derived,
     _compute_valuation_ratios,
     _fetch_xbrl,
+    _to_period_series,
     ANNUAL_FILERS,
     CIK_MAP,
 )
@@ -89,3 +90,18 @@ def test_fetch_xbrl_returns_empty_on_404():
     with patch("ingestion.edgar_fundamentals_ingestion.requests.get", return_value=mock_resp):
         result = _fetch_xbrl("0000789019", "NonExistentConcept")
     assert result == []
+
+
+# ── Test: _to_period_series returns correct DataFrame ─────────────────────────
+
+def test_to_period_series_returns_polars_df():
+    records = [Q1, Q2]  # defined above in Task 1 fixtures
+    df = _to_period_series(records, value_col="revenue", annual=False)
+    assert isinstance(df, pl.DataFrame)
+    assert "period_end" in df.columns
+    assert "revenue" in df.columns
+    assert len(df) == 2
+    assert df.schema["period_end"] == pl.Date
+    assert df.schema["revenue"] == pl.Float64
+    # Values must match fixture
+    assert df.sort("period_end")["revenue"].to_list() == [15_000_000_000.0, 16_000_000_000.0]

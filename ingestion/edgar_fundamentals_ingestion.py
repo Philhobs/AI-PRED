@@ -186,6 +186,143 @@ def _filter_annual(records: list[dict]) -> list[dict]:
     return sorted(best.values(), key=lambda x: x["end"])
 
 
+def _to_period_series(records: list[dict], value_col: str, annual: bool) -> pl.DataFrame:
+    """
+    Apply quarterly or annual filter to raw EDGAR records.
+    Return DataFrame with [period_end (Date), value_col (Float64)].
+    Returns empty DataFrame with correct schema if no records pass the filter.
+    """
+    filtered = _filter_annual(records) if annual else _filter_quarterly(records)
+    if not filtered:
+        return pl.DataFrame(
+            {"period_end": pl.Series([], dtype=pl.Date),
+             value_col:    pl.Series([], dtype=pl.Float64)}
+        )
+    return pl.DataFrame({
+        "period_end": pl.Series(
+            [datetime.date.fromisoformat(r["end"]) for r in filtered],
+            dtype=pl.Date,
+        ),
+        value_col: pl.Series(
+            [float(r["val"]) for r in filtered],
+            dtype=pl.Float64,
+        ),
+    })
+
+
+def _build_income_df(cik: str, ticker: str, annual: bool) -> pl.DataFrame:
+    """
+    Fetch income statement + capex from EDGAR for one ticker.
+    Returns DataFrame: [period_end, revenue, gross_profit, operating_income,
+                        net_income, capex]
+    Missing concepts produce null columns. Returns empty DataFrame if revenue
+    data is unavailable (revenue is the required anchor column).
+    """
+    print(f"[EDGAR] {ticker}: fetching income statement...")
+
+    revenue_records        = _try_concepts(cik, REVENUE_CONCEPTS)
+    gross_profit_records   = _fetch_xbrl(cik, "GrossProfit");           time.sleep(0.15)
+    op_income_records      = _fetch_xbrl(cik, "OperatingIncomeLoss");   time.sleep(0.15)
+    net_income_records     = _try_concepts(cik, NET_INCOME_CONCEPTS)
+    capex_records          = _try_concepts(cik, CAPEX_CONCEPTS)
+
+    revenue = _to_period_series(revenue_records, "revenue", annual)
+    if revenue.is_empty():
+        print(f"[EDGAR] {ticker}: no revenue data found — skipping")
+        return pl.DataFrame()
+
+    gross_profit      = _to_period_series(gross_profit_records,  "gross_profit",      annual)
+    operating_income  = _to_period_series(op_income_records,     "operating_income",  annual)
+    net_income        = _to_period_series(net_income_records,     "net_income",        annual)
+    capex             = _to_period_series(capex_records,          "capex",             annual)
+
+    # Outer-join all series on period_end; missing quarters become null
+    df = revenue
+    for other in [gross_profit, operating_income, net_income, capex]:
+        if not other.is_empty():
+            df = df.join(other, on="period_end", how="left")
+        else:
+            col_name = [c for c in other.columns if c != "period_end"][0] if other.columns else None
+            if col_name:
+                df = df.with_columns(pl.lit(None).cast(pl.Float64).alias(col_name))
+
+    # Ensure all expected columns exist
+    for col in ["gross_profit", "operating_income", "net_income", "capex"]:
+        if col not in df.columns:
+            df = df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
+
+    # Capex is a cash outflow (negative in XBRL) — store as positive
+    if "capex" in df.columns:
+        df = df.with_columns(pl.col("capex").abs())
+
+    return df.sort("period_end")
+
+
+def _build_balance_df(cik: str, ticker: str) -> pl.DataFrame:
+    """
+    Fetch balance sheet snapshot items from EDGAR for one ticker.
+    Balance sheet items have no start date — deduplicate by end date (latest filed).
+    Returns DataFrame: [period_end, equity, long_term_debt,
+                        current_assets, current_liabilities, shares_outstanding]
+    """
+    print(f"[EDGAR] {ticker}: fetching balance sheet...")
+
+    def _dedup_snapshot(records: list[dict], value_col: str) -> pl.DataFrame:
+        """Deduplicate snapshot (no start) records by end date, keep latest filed."""
+        best: dict[str, dict] = {}
+        for r in records:
+            key = r["end"]
+            if key not in best or r["filed"] > best[key]["filed"]:
+                best[key] = r
+        filtered = sorted(best.values(), key=lambda x: x["end"])
+        if not filtered:
+            return pl.DataFrame({
+                "period_end": pl.Series([], dtype=pl.Date),
+                value_col:    pl.Series([], dtype=pl.Float64),
+            })
+        return pl.DataFrame({
+            "period_end": pl.Series(
+                [datetime.date.fromisoformat(r["end"]) for r in filtered],
+                dtype=pl.Date,
+            ),
+            value_col: pl.Series(
+                [float(r["val"]) for r in filtered],
+                dtype=pl.Float64,
+            ),
+        })
+
+    equity_records     = _try_concepts(cik, EQUITY_CONCEPTS)
+    debt_records       = _try_concepts(cik, DEBT_CONCEPTS)
+    cur_assets_records = _fetch_xbrl(cik, "AssetsCurrent");       time.sleep(0.15)
+    cur_liab_records   = _fetch_xbrl(cik, "LiabilitiesCurrent");  time.sleep(0.15)
+    shares_records     = _try_concepts(cik, SHARES_CONCEPTS)
+
+    equity       = _dedup_snapshot(equity_records,     "equity")
+    debt         = _dedup_snapshot(debt_records,       "long_term_debt")
+    cur_assets   = _dedup_snapshot(cur_assets_records, "current_assets")
+    cur_liab     = _dedup_snapshot(cur_liab_records,   "current_liabilities")
+    shares       = _dedup_snapshot(shares_records,     "shares_outstanding")
+
+    if equity.is_empty():
+        print(f"[EDGAR] {ticker}: no equity data — balance sheet will be null")
+        return pl.DataFrame()
+
+    df = equity
+    for other in [debt, cur_assets, cur_liab, shares]:
+        if not other.is_empty():
+            df = df.join(other, on="period_end", how="left")
+        else:
+            col_name = [c for c in other.columns if c != "period_end"][0] if other.columns else None
+            if col_name:
+                df = df.with_columns(pl.lit(None).cast(pl.Float64).alias(col_name))
+
+    for col in ["long_term_debt", "current_assets", "current_liabilities", "shares_outstanding"]:
+        if col not in df.columns:
+            df = df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
+
+    return df.sort("period_end")
+
+
 # ── Placeholder stubs (implemented in later tasks) ────────────────────────────
 
 def _compute_derived(income: pl.DataFrame, balance: pl.DataFrame) -> pl.DataFrame:
