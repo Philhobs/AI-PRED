@@ -176,3 +176,86 @@ def test_congressional_amount_parsing():
     assert _parse_amount_band("$500,001 - $1,000,000") == pytest.approx(750000.5)
     assert _parse_amount_band("over $1,000,000") == pytest.approx(1500000.0)
     assert _parse_amount_band("unknown format") is None
+
+
+# ── insider feature helpers ───────────────────────────────────────────────────
+from datetime import date as _date
+
+
+def _make_insider_df(rows: list[dict]) -> pl.DataFrame:
+    """Build minimal insider trades DataFrame for testing."""
+    if not rows:
+        return pl.DataFrame(schema={
+            "ticker": pl.Utf8,
+            "transaction_date": pl.Date,
+            "insider_name": pl.Utf8,
+            "transaction_code": pl.Utf8,
+            "value": pl.Float64,
+        })
+    return pl.DataFrame({
+        "ticker": [r["ticker"] for r in rows],
+        "transaction_date": [r["date"] for r in rows],
+        "insider_name": [r.get("name", "Person") for r in rows],
+        "transaction_code": [r["code"] for r in rows],
+        "value": [float(r["value"]) for r in rows],
+    }).with_columns(pl.col("transaction_date").cast(pl.Date))
+
+
+def _make_congress_df(rows: list[dict]) -> pl.DataFrame:
+    """Build minimal congressional trades DataFrame for testing."""
+    if not rows:
+        return pl.DataFrame(schema={
+            "ticker": pl.Utf8,
+            "trade_date": pl.Date,
+            "transaction_type": pl.Utf8,
+            "amount_mid": pl.Float64,
+        })
+    return pl.DataFrame({
+        "ticker": [r["ticker"] for r in rows],
+        "trade_date": [r["date"] for r in rows],
+        "transaction_type": [r["type"] for r in rows],
+        "amount_mid": [float(r["amount"]) for r in rows],
+    }).with_columns(pl.col("trade_date").cast(pl.Date))
+
+
+def test_compute_cluster_buy_90d():
+    """3 distinct insiders buying in 90-day window → cluster_buy = 3 (not 4)."""
+    from processing.insider_features import _compute_cluster_buy_90d
+    trades = _make_insider_df([
+        {"ticker": "NVDA", "date": _date(2024, 1, 10), "code": "P", "value": 1e6, "name": "Alice"},
+        {"ticker": "NVDA", "date": _date(2024, 1, 15), "code": "P", "value": 2e6, "name": "Bob"},
+        {"ticker": "NVDA", "date": _date(2024, 1, 20), "code": "P", "value": 3e6, "name": "Carol"},
+        {"ticker": "NVDA", "date": _date(2024, 1, 25), "code": "P", "value": 5e5, "name": "Alice"},  # Alice buys again
+    ])
+    result = _compute_cluster_buy_90d(trades, ticker="NVDA", as_of=_date(2024, 3, 1), window_days=90)
+    assert result == 3  # distinct insiders, not transaction count
+
+
+def test_compute_net_value_30d():
+    """$5M purchases, $2M sales in window → net = 3.0 millions."""
+    from processing.insider_features import _compute_net_value_30d
+    trades = _make_insider_df([
+        {"ticker": "NVDA", "date": _date(2024, 1, 20), "code": "P", "value": 5_000_000},
+        {"ticker": "NVDA", "date": _date(2024, 1, 22), "code": "S", "value": 2_000_000},
+    ])
+    result = _compute_net_value_30d(trades, ticker="NVDA", as_of=_date(2024, 2, 15), window_days=30)
+    assert result == pytest.approx(3.0)
+
+
+def test_compute_buy_sell_ratio_no_trades():
+    """Empty window → None (not zero)."""
+    from processing.insider_features import _compute_buy_sell_ratio_90d
+    trades = _make_insider_df([])
+    result = _compute_buy_sell_ratio_90d(trades, ticker="NVDA", as_of=_date(2024, 3, 1), window_days=90)
+    assert result is None
+
+
+def test_compute_congress_net_buy_90d():
+    """$3M purchases - $1M sales → net = 2.0 millions."""
+    from processing.insider_features import _compute_congress_net_buy_90d
+    congress = _make_congress_df([
+        {"ticker": "NVDA", "date": _date(2024, 1, 10), "type": "purchase", "amount": 3_000_000},
+        {"ticker": "NVDA", "date": _date(2024, 1, 15), "type": "sale", "amount": 1_000_000},
+    ])
+    result = _compute_congress_net_buy_90d(congress, ticker="NVDA", as_of=_date(2024, 3, 1), window_days=90)
+    assert result == pytest.approx(2.0)
