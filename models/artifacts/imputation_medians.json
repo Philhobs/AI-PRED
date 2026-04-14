@@ -1,0 +1,17 @@
+{
+  "return_1d": 0.00017689667457032598,
+  "return_5d": 0.004325354115348956,
+  "return_20d": 0.018460178724342358,
+  "sma_20_deviation": 0.00937219871520445,
+  "volatility_20d": 0.037400537877775746,
+  "volume_ratio": 0.8996535453455141,
+  "pe_ratio_trailing": 0.0,
+  "price_to_sales": 0.0,
+  "price_to_book": 0.0,
+  "revenue_growth_yoy": 0.11972430883605668,
+  "gross_margin": 0.5696615701769455,
+  "operating_margin": 0.19320148098789847,
+  "capex_to_revenue": 0.06339074932237475,
+  "debt_to_equity": 0.4723996909217693,
+  "current_ratio": 2.0517497310807307
+}

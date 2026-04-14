@@ -1,0 +1,17 @@
+[
+  "return_1d",
+  "return_5d",
+  "return_20d",
+  "sma_20_deviation",
+  "volatility_20d",
+  "volume_ratio",
+  "pe_ratio_trailing",
+  "price_to_sales",
+  "price_to_book",
+  "revenue_growth_yoy",
+  "gross_margin",
+  "operating_margin",
+  "capex_to_revenue",
+  "debt_to_equity",
+  "current_ratio"
+]
