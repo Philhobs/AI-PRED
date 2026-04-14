@@ -5,6 +5,7 @@ Two pages:
   1. Top Picks — ranked table + top-5 metric cards
   2. Stock Drill-Down — price chart, prediction history, fundamentals table
 """
+import datetime
 import streamlit as st
 import plotly.graph_objects as go
 import polars as pl
@@ -47,7 +48,10 @@ def load_latest_predictions() -> pl.DataFrame:
     date_dirs = sorted(PREDICTIONS_DIR.glob("date=*"))
     if not date_dirs:
         return pl.DataFrame()
-    return pl.read_parquet(str(date_dirs[-1] / "predictions.parquet")).sort("rank")
+    parquet_path = date_dirs[-1] / "predictions.parquet"
+    if not parquet_path.exists():
+        return pl.DataFrame()
+    return pl.read_parquet(str(parquet_path)).sort("rank")
 
 
 def load_ticker_predictions(ticker: str) -> pl.DataFrame:
@@ -62,17 +66,20 @@ def load_ticker_predictions(ticker: str) -> pl.DataFrame:
             filtered = df.filter(pl.col("ticker") == ticker)
             if not filtered.is_empty():
                 frames.append(filtered)
-        except Exception:
+        except (FileNotFoundError, OSError):
             continue
     return pl.concat(frames) if frames else pl.DataFrame()
 
 
 def load_ohlcv(ticker: str, days: int = 504) -> pl.DataFrame:
     """Load last `days` rows of OHLCV for a ticker. Returns empty DataFrame if missing."""
-    glob = str(OHLCV_DIR / ticker / "*.parquet")
+    ticker_dir = OHLCV_DIR / ticker
+    parquet_files = list(ticker_dir.glob("*.parquet")) if ticker_dir.exists() else []
+    if not parquet_files:
+        return pl.DataFrame()
     try:
-        return pl.read_parquet(glob).sort("date").tail(days)
-    except Exception:
+        return pl.concat([pl.read_parquet(str(f)) for f in parquet_files]).sort("date").tail(days)
+    except (OSError, Exception):
         return pl.DataFrame()
 
 
@@ -112,7 +119,6 @@ def page_top_picks():
         return
 
     # Staleness warning: if predictions are >2 days old
-    import datetime
     date_dirs = sorted(PREDICTIONS_DIR.glob("date=*"))
     last_date_str = date_dirs[-1].name.replace("date=", "")
     last_date = datetime.date.fromisoformat(last_date_str)
@@ -156,9 +162,8 @@ def page_top_picks():
             st.metric(
                 label=f"#{row['rank']} {row['ticker']}",
                 value=f"{ret_pct:.1f}%",
-                delta=row["sector"],
             )
-            st.caption(f"Range: {low_pct:.1f}%–{high_pct:.1f}%")
+            st.caption(f"{row['sector']} | Range: {low_pct:.1f}%–{high_pct:.1f}%")
             if top_features:
                 st.caption("Key signals: " + ", ".join(top_features))
 
