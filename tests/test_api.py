@@ -165,3 +165,33 @@ def test_features_ticker_503_when_no_ohlcv(tmp_path):
     finally:
         main_mod.OHLCV_DIR = original
     assert resp.status_code == 503
+
+
+# ── Dashboard data loading tests ──────────────────────────────────────────────
+
+from dashboard.app import load_latest_predictions, load_ticker_predictions
+
+
+def test_load_latest_predictions_returns_df(predictions_env):
+    import dashboard.app as dash_mod
+    original = dash_mod.PREDICTIONS_DIR
+    dash_mod.PREDICTIONS_DIR = predictions_env
+    try:
+        df = load_latest_predictions()
+    finally:
+        dash_mod.PREDICTIONS_DIR = original
+    assert "ticker" in df.columns
+    assert "expected_annual_return" in df.columns
+    assert len(df) == 3
+
+
+def test_load_ticker_predictions_filters_correctly(predictions_env):
+    import dashboard.app as dash_mod
+    original = dash_mod.PREDICTIONS_DIR
+    dash_mod.PREDICTIONS_DIR = predictions_env
+    try:
+        df = load_ticker_predictions("CEG")
+    finally:
+        dash_mod.PREDICTIONS_DIR = original
+    assert len(df) >= 1
+    assert all(t == "CEG" for t in df["ticker"].to_list())
