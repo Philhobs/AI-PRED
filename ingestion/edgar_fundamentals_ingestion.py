@@ -495,3 +495,95 @@ def _compute_valuation_ratios(
 
     return df.drop(["market_cap", "ttm_revenue", "ttm_net_income",
                     "close_price"], strict=False)
+
+
+def fetch_edgar_fundamentals(ticker: str, ohlcv_dir: Path) -> pl.DataFrame:
+    """
+    Main per-ticker entry point.
+
+    Fetches income statement + balance sheet from SEC EDGAR, computes 6 derived
+    metrics and 3 valuation ratios, and returns a DataFrame matching the schema
+    of fundamental_ingestion.py output.
+
+    Returns empty DataFrame if the ticker has no EDGAR data (e.g. too new).
+    """
+    cik = CIK_MAP.get(ticker)
+    if cik is None:
+        _LOG.warning("[EDGAR] %s: no CIK in map — skipping", ticker)
+        return pl.DataFrame()
+
+    annual = ticker in ANNUAL_FILERS
+
+    income  = _build_income_df(cik, ticker, annual)
+    balance = _build_balance_df(cik, ticker)
+
+    if income.is_empty():
+        return pl.DataFrame()
+
+    df = _compute_derived(income, balance)
+    if df.is_empty():
+        return pl.DataFrame()
+
+    df = _compute_valuation_ratios(df, ticker, ohlcv_dir)
+
+    # Select and rename to final output schema
+    output_cols = [
+        "period_end", "pe_ratio_trailing", "price_to_sales", "price_to_book",
+        "revenue_growth_yoy", "gross_margin", "operating_margin",
+        "capex_to_revenue", "debt_to_equity", "current_ratio",
+    ]
+    # Only keep columns that exist (some may be null if EDGAR had no data)
+    present = [c for c in output_cols if c in df.columns]
+    missing = [c for c in output_cols if c not in df.columns]
+
+    df = df.select(present)
+    for col in missing:
+        df = df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
+
+    df = df.select(output_cols).with_columns(
+        pl.lit(ticker).alias("ticker")
+    ).select(["ticker"] + output_cols)
+
+    _LOG.info("[EDGAR] %s: %d periods, %s → %s",
+              ticker, len(df), df["period_end"].min(), df["period_end"].max())
+    return df
+
+
+def save_edgar_fundamentals(df: pl.DataFrame, ticker: str, output_dir: Path) -> None:
+    """
+    Write to data/raw/financials/fundamentals/<TICKER>/quarterly.parquet
+    (overwrites yfinance-only data). Uses same PyArrow schema as
+    fundamental_ingestion.py so fundamental_features.py needs no changes.
+    """
+    if df.is_empty():
+        _LOG.warning("[EDGAR] %s: no data to write", ticker)
+        return
+
+    path = output_dir / "financials" / "fundamentals" / ticker / "quarterly.parquet"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    table = pa.Table.from_pylist(df.to_dicts(), schema=_SCHEMA)
+    pq.write_table(table, str(path), compression="snappy")
+    _LOG.info("[EDGAR] %s: %d rows → %s", ticker, len(df), path)
+
+
+if __name__ == "__main__":
+    import sys
+    logging.basicConfig(level=logging.INFO, stream=sys.stdout,
+                        format="%(message)s")
+    from dotenv import load_dotenv
+    load_dotenv()
+
+    ohlcv_dir  = Path("data/raw/financials/ohlcv")
+    output_dir = Path("data/raw")
+
+    tickers = list(CIK_MAP.keys())
+    print(f"[EDGAR] Fetching fundamentals for {len(tickers)} tickers from SEC EDGAR...")
+    print("[EDGAR] Expected runtime: ~5 minutes (rate-limited to SEC fair use)")
+
+    for i, ticker in enumerate(tickers, 1):
+        print(f"\n[EDGAR] [{i}/{len(tickers)}] {ticker}")
+        df = fetch_edgar_fundamentals(ticker, ohlcv_dir)
+        save_edgar_fundamentals(df, ticker, output_dir)
+        time.sleep(1)  # 1s between tickers (on top of per-concept sleeps)
+
+    print("\n[EDGAR] Done. Run `python models/train.py` to retrain with historical fundamentals.")
