@@ -103,7 +103,7 @@ def _fetch_xbrl(cik: str, concept: str) -> list[dict]:
     """
     url = (
         f"https://data.sec.gov/api/xbrl/companyconcept/"
-        f"{cik}/us-gaap/{concept}.json"
+        f"CIK{cik}/us-gaap/{concept}.json"
     )
     try:
         resp = requests.get(url, headers=_HEADERS, timeout=30)
