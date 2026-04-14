@@ -79,7 +79,7 @@ def _all_predictions() -> pl.DataFrame:
 def health():
     """Return service health and the most recent prediction date."""
     df = _latest_predictions()
-    last_date = _date_dirs()[-1].name[len("date="):]
+    last_date = str(df["as_of_date"].max())
     return {
         "status": "ok",
         "last_prediction_date": last_date,

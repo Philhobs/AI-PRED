@@ -79,7 +79,7 @@ def load_ohlcv(ticker: str, days: int = 504) -> pl.DataFrame:
         return pl.DataFrame()
     try:
         return pl.concat([pl.read_parquet(str(f)) for f in parquet_files]).sort("date").tail(days)
-    except (OSError, Exception):
+    except OSError:
         return pl.DataFrame()
 
 
