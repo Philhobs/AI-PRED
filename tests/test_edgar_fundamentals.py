@@ -168,3 +168,44 @@ def test_compute_derived_revenue_growth_yoy():
     # Q1 2022 has no prior year — should be null
     q_2022 = df.filter(pl.col("period_end") == datetime.date(2022, 3, 31))
     assert q_2022["revenue_growth_yoy"][0] is None
+
+
+def test_compute_derived_yoy_handles_missing_quarter():
+    """shift(4) would produce wrong results with gaps; calendar join should be immune."""
+    # Q3 2022 is missing from the series
+    income_with_gap = pl.DataFrame({
+        "period_end": pl.Series([
+            datetime.date(2022, 3, 31),   # Q1 2022
+            datetime.date(2022, 6, 30),   # Q2 2022
+            # Q3 2022 MISSING
+            datetime.date(2022, 12, 31),  # Q4 2022
+            datetime.date(2023, 3, 31),   # Q1 2023
+        ], dtype=pl.Date),
+        "revenue":          [10_000.0, 10_500.0, 11_500.0, 12_000.0],
+        "gross_profit":     [ 6_000.0,  6_300.0,  6_900.0,  7_200.0],
+        "operating_income": [ 3_000.0,  3_150.0,  3_450.0,  3_600.0],
+        "net_income":       [ 2_500.0,  2_625.0,  2_875.0,  3_000.0],
+        "capex":            [   500.0,    525.0,    575.0,    600.0],
+    })
+    balance_with_gap = pl.DataFrame({
+        "period_end": pl.Series([
+            datetime.date(2022, 3, 31),
+            datetime.date(2022, 6, 30),
+            datetime.date(2022, 12, 31),
+            datetime.date(2023, 3, 31),
+        ], dtype=pl.Date),
+        "equity":              [50_000.0, 52_000.0, 56_000.0, 58_000.0],
+        "long_term_debt":      [10_000.0, 10_000.0, 10_000.0, 10_000.0],
+        "current_assets":      [20_000.0, 21_000.0, 23_000.0, 24_000.0],
+        "current_liabilities": [ 8_000.0,  8_400.0,  9_200.0,  9_600.0],
+        "shares_outstanding":  [ 1_000.0,  1_000.0,  1_000.0,  1_000.0],
+    })
+    df = _compute_derived(income_with_gap, balance_with_gap)
+    q_2023_q1 = df.filter(pl.col("period_end") == datetime.date(2023, 3, 31))
+    assert len(q_2023_q1) == 1
+    row = q_2023_q1.row(0, named=True)
+    # Q1 2023 = 12000, Q1 2022 = 10000 → growth = 0.20
+    # With positional shift(4), this would be None (gap breaks indexing)
+    # With calendar-aware join, this correctly computes 0.20
+    assert row["revenue_growth_yoy"] is not None
+    assert abs(row["revenue_growth_yoy"] - 0.20) < 1e-6

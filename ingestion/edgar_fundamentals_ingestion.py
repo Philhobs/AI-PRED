@@ -340,18 +340,29 @@ def _compute_derived(income: pl.DataFrame, balance: pl.DataFrame) -> pl.DataFram
 
     df = income.join(balance, on="period_end", how="left").sort("period_end")
 
-    # Revenue YoY: shift(4) gives the value 4 rows back (same quarter prior year)
-    df = df.with_columns(
-        pl.col("revenue").shift(4).alias("revenue_4q_prior")
-    )
+    # Revenue YoY: calendar-aware join on year+quarter to handle gaps in history.
+    # shift(4) is position-based and produces wrong results when quarters are missing.
+    df = df.with_columns([
+        pl.col("period_end").dt.year().alias("_year"),
+        pl.col("period_end").dt.quarter().alias("_quarter"),
+    ])
+
+    prior_year = df.select([
+        (pl.col("_year") + 1).alias("_year"),   # prior year → current year
+        pl.col("_quarter"),
+        pl.col("revenue").alias("revenue_4q_prior"),
+    ])
+
+    df = df.join(prior_year, on=["_year", "_quarter"], how="left")
+    df = df.drop(["_year", "_quarter"])
 
     df = df.with_columns([
         # revenue_growth_yoy
         pl.when(
-            pl.col("revenue_4q_prior").is_not_null() & (pl.col("revenue_4q_prior") != 0)
+            pl.col("revenue_4q_prior").is_not_null() & (pl.col("revenue_4q_prior") > 0)
         )
         .then(
-            (pl.col("revenue") - pl.col("revenue_4q_prior")) / pl.col("revenue_4q_prior").abs()
+            (pl.col("revenue") - pl.col("revenue_4q_prior")) / pl.col("revenue_4q_prior")
         )
         .otherwise(None)
         .alias("revenue_growth_yoy"),
@@ -382,7 +393,7 @@ def _compute_derived(income: pl.DataFrame, balance: pl.DataFrame) -> pl.DataFram
 
         # current_ratio
         pl.when(
-            pl.col("current_liabilities").is_not_null() & (pl.col("current_liabilities") != 0)
+            pl.col("current_liabilities").is_not_null() & (pl.col("current_liabilities") > 0)
         )
         .then(pl.col("current_assets") / pl.col("current_liabilities"))
         .otherwise(None)
