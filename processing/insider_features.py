@@ -173,7 +173,7 @@ def compute_insider_features(
 
     # Load congressional trades
     if congressional_trades_path.exists():
-        con.execute(f"CREATE TABLE congress AS SELECT * FROM read_parquet('{congressional_trades_path}')")
+        con.execute("CREATE TABLE congress AS SELECT * FROM read_parquet(?)", [str(congressional_trades_path)])
     else:
         con.execute("""
             CREATE TABLE congress (
