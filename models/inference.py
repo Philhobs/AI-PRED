@@ -173,6 +173,11 @@ def run_inference(
         .with_columns(
             pl.Series("rank", list(range(1, len(tickers) + 1)), dtype=pl.Int32)
         )
+        .select([
+            "ticker", "rank", "expected_annual_return",
+            "confidence_low", "confidence_high",
+            "lgbm_return", "rf_return", "ridge_return", "as_of_date",
+        ])
     )
 
     # ── Step 8: Write Parquet ─────────────────────────────────────────────────
