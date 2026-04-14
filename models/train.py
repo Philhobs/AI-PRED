@@ -195,8 +195,8 @@ def train(
     val_lgbm_preds, val_rf_preds, val_ridge_preds, val_y_all = [], [], [], []
 
     for split in splits:
-        train_dates = pl.Series(dates_sorted[:split])
-        val_dates = pl.Series(dates_sorted[split: split + val_window_days])
+        train_dates = dates_sorted[:split]
+        val_dates = dates_sorted[split: split + val_window_days]
 
         train_mask = df["date"].is_in(train_dates)
         val_mask = df["date"].is_in(val_dates)
