@@ -45,6 +45,11 @@ def test_join_fundamentals_picks_most_recent_quarter_before_date(tmp_path):
     assert row_aug["pe_ratio_trailing"][0] == pytest.approx(35.0)
     assert row_aug["gross_margin"][0] == pytest.approx(0.72)
 
+    # Output columns must be exactly: price columns + 9 fundamental columns (no period_end leak)
+    from processing.fundamental_features import _FUND_COLS
+    expected_cols = {"ticker", "date", "close_price"} | set(_FUND_COLS)
+    assert set(result.columns) == expected_cols
+
 
 def test_join_fundamentals_returns_null_columns_when_no_data(tmp_path):
     """When fundamentals directory is empty, all fundamental columns are null."""

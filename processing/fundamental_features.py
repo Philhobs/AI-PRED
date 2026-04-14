@@ -80,7 +80,8 @@ def join_fundamentals(
         right_on="period_end",
         by="ticker",
         strategy="backward",
+        check_sortedness=False,
     )
 
-    # Restore original row order (sort by ticker then date)
-    return joined.sort(["ticker", "date"])
+    # Drop the right join key (period_end) — keep output schema consistent with null-fallback path
+    return joined.drop("period_end").sort(["ticker", "date"])

@@ -104,7 +104,11 @@ def fetch_fundamentals(ticker: str) -> list[dict]:
         current_assets = _safe_get(qbs, period_col, "Current Assets", "Total Current Assets") if not qbs.empty else None
         current_liabilities = _safe_get(qbs, period_col, "Current Liabilities", "Total Current Liabilities") if not qbs.empty else None
 
-        debt_to_equity = total_debt / total_equity if (total_debt is not None and total_equity) else None
+        debt_to_equity = (
+            total_debt / total_equity
+            if (total_debt is not None and total_equity is not None and total_equity > 0)
+            else None
+        )
         current_ratio = current_assets / current_liabilities if (current_assets is not None and current_liabilities) else None
 
         is_most_recent = period_col == most_recent
