@@ -85,11 +85,13 @@ def _impute(X: np.ndarray, medians: dict[str, float]) -> np.ndarray:
 
 
 def _compute_medians(X: np.ndarray) -> dict[str, float]:
-    """Compute per-feature nanmedian over the training set. Never uses validation data."""
-    return {
-        name: float(np.nanmedian(X[:, i]))
-        for i, name in enumerate(FEATURE_COLS)
-    }
+    """Compute per-feature nanmedian over the training set. Never uses validation data.
+    Falls back to 0.0 for columns that are entirely NaN (e.g. fundamentals not yet available)."""
+    result = {}
+    for i, name in enumerate(FEATURE_COLS):
+        v = np.nanmedian(X[:, i])
+        result[name] = 0.0 if np.isnan(v) else float(v)
+    return result
 
 
 # ── Main training entry point ─────────────────────────────────────────────────
