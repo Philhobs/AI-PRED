@@ -40,18 +40,17 @@ def _compute_cluster_buy_90d(
     """
     if insider_trades.is_empty():
         return None
-    con = duckdb.connect()
-    con.register("trades", insider_trades)
-    row = con.execute("""
-        SELECT COUNT(DISTINCT insider_name) AS cnt
-        FROM trades
-        WHERE ticker = ?
-          AND transaction_code = 'P'
-          AND transaction_date >= CAST(? AS DATE) - INTERVAL (?) DAY
-          AND transaction_date <= CAST(? AS DATE)
-    """, [ticker, str(as_of), window_days, str(as_of)]).fetchone()
+    with duckdb.connect() as con:
+        con.register("trades", insider_trades)
+        row = con.execute("""
+            SELECT COUNT(DISTINCT insider_name) AS cnt
+            FROM trades
+            WHERE ticker = ?
+              AND transaction_code = 'P'
+              AND transaction_date BETWEEN CAST(? AS DATE) - (? * INTERVAL '1 DAY') AND CAST(? AS DATE)
+        """, [ticker, str(as_of), window_days, str(as_of)]).fetchone()
     count = row[0] if row else 0
-    return int(count) if count and count > 0 else None
+    return int(count) if count > 0 else None
 
 
 def _compute_net_value_30d(
@@ -65,25 +64,23 @@ def _compute_net_value_30d(
     """
     if insider_trades.is_empty():
         return None
-    con = duckdb.connect()
-    con.register("trades", insider_trades)
-    count_row = con.execute("""
-        SELECT COUNT(*) FROM trades
-        WHERE ticker = ?
-          AND transaction_date >= CAST(? AS DATE) - INTERVAL (?) DAY
-          AND transaction_date <= CAST(? AS DATE)
-    """, [ticker, str(as_of), window_days, str(as_of)]).fetchone()
-    if not count_row or count_row[0] == 0:
-        return None
-    row = con.execute("""
-        SELECT
-            COALESCE(SUM(CASE WHEN transaction_code = 'P' THEN value ELSE 0 END), 0.0)
-            - COALESCE(SUM(CASE WHEN transaction_code = 'S' THEN value ELSE 0 END), 0.0)
-        FROM trades
-        WHERE ticker = ?
-          AND transaction_date >= CAST(? AS DATE) - INTERVAL (?) DAY
-          AND transaction_date <= CAST(? AS DATE)
-    """, [ticker, str(as_of), window_days, str(as_of)]).fetchone()
+    with duckdb.connect() as con:
+        con.register("trades", insider_trades)
+        count_row = con.execute("""
+            SELECT COUNT(*) FROM trades
+            WHERE ticker = ?
+              AND transaction_date BETWEEN CAST(? AS DATE) - (? * INTERVAL '1 DAY') AND CAST(? AS DATE)
+        """, [ticker, str(as_of), window_days, str(as_of)]).fetchone()
+        if not count_row or count_row[0] == 0:
+            return None
+        row = con.execute("""
+            SELECT
+                COALESCE(SUM(CASE WHEN transaction_code = 'P' THEN value ELSE 0 END), 0.0)
+                - COALESCE(SUM(CASE WHEN transaction_code = 'S' THEN value ELSE 0 END), 0.0)
+            FROM trades
+            WHERE ticker = ?
+              AND transaction_date BETWEEN CAST(? AS DATE) - (? * INTERVAL '1 DAY') AND CAST(? AS DATE)
+        """, [ticker, str(as_of), window_days, str(as_of)]).fetchone()
     return row[0] / 1_000_000.0 if row and row[0] is not None else None
 
 
@@ -96,17 +93,16 @@ def _compute_buy_sell_ratio_90d(
     """Purchase count / total count in window. Returns None if no trades."""
     if insider_trades.is_empty():
         return None
-    con = duckdb.connect()
-    con.register("trades", insider_trades)
-    row = con.execute("""
-        SELECT
-            SUM(CASE WHEN transaction_code = 'P' THEN 1 ELSE 0 END) AS buys,
-            COUNT(*) AS total
-        FROM trades
-        WHERE ticker = ?
-          AND transaction_date >= CAST(? AS DATE) - INTERVAL (?) DAY
-          AND transaction_date <= CAST(? AS DATE)
-    """, [ticker, str(as_of), window_days, str(as_of)]).fetchone()
+    with duckdb.connect() as con:
+        con.register("trades", insider_trades)
+        row = con.execute("""
+            SELECT
+                SUM(CASE WHEN transaction_code = 'P' THEN 1 ELSE 0 END) AS buys,
+                COUNT(*) AS total
+            FROM trades
+            WHERE ticker = ?
+              AND transaction_date BETWEEN CAST(? AS DATE) - (? * INTERVAL '1 DAY') AND CAST(? AS DATE)
+        """, [ticker, str(as_of), window_days, str(as_of)]).fetchone()
     if not row or row[1] == 0:
         return None
     return row[0] / row[1]
@@ -123,25 +119,23 @@ def _compute_congress_net_buy_90d(
     """
     if congressional_trades.is_empty():
         return None
-    con = duckdb.connect()
-    con.register("congress", congressional_trades)
-    count_row = con.execute("""
-        SELECT COUNT(*) FROM congress
-        WHERE ticker = ?
-          AND trade_date >= CAST(? AS DATE) - INTERVAL (?) DAY
-          AND trade_date <= CAST(? AS DATE)
-    """, [ticker, str(as_of), window_days, str(as_of)]).fetchone()
-    if not count_row or count_row[0] == 0:
-        return None
-    row = con.execute("""
-        SELECT
-            COALESCE(SUM(CASE WHEN transaction_type = 'purchase' THEN amount_mid ELSE 0 END), 0.0)
-            - COALESCE(SUM(CASE WHEN transaction_type = 'sale' THEN amount_mid ELSE 0 END), 0.0)
-        FROM congress
-        WHERE ticker = ?
-          AND trade_date >= CAST(? AS DATE) - INTERVAL (?) DAY
-          AND trade_date <= CAST(? AS DATE)
-    """, [ticker, str(as_of), window_days, str(as_of)]).fetchone()
+    with duckdb.connect() as con:
+        con.register("congress", congressional_trades)
+        count_row = con.execute("""
+            SELECT COUNT(*) FROM congress
+            WHERE ticker = ?
+              AND trade_date BETWEEN CAST(? AS DATE) - (? * INTERVAL '1 DAY') AND CAST(? AS DATE)
+        """, [ticker, str(as_of), window_days, str(as_of)]).fetchone()
+        if not count_row or count_row[0] == 0:
+            return None
+        row = con.execute("""
+            SELECT
+                COALESCE(SUM(CASE WHEN transaction_type = 'purchase' THEN amount_mid ELSE 0 END), 0.0)
+                - COALESCE(SUM(CASE WHEN transaction_type = 'sale' THEN amount_mid ELSE 0 END), 0.0)
+            FROM congress
+            WHERE ticker = ?
+              AND trade_date BETWEEN CAST(? AS DATE) - (? * INTERVAL '1 DAY') AND CAST(? AS DATE)
+        """, [ticker, str(as_of), window_days, str(as_of)]).fetchone()
     return row[0] / 1_000_000.0 if row and row[0] is not None else None
 
 
@@ -164,10 +158,10 @@ def compute_insider_features(
     con = duckdb.connect()
 
     # Load insider trades
-    insider_parquets = list(insider_trades_dir.glob("*/transactions.parquet"))
+    insider_parquets = list(insider_trades_dir.glob("*/transactions.parquet")) if insider_trades_dir.exists() else []
     if insider_parquets:
-        paths_repr = repr([str(p) for p in insider_parquets])
-        con.execute(f"CREATE TABLE insider AS SELECT * FROM read_parquet({paths_repr})")
+        insider_glob = str(insider_trades_dir / "*" / "transactions.parquet")
+        con.execute("CREATE TABLE insider AS SELECT * FROM read_parquet(?)", [insider_glob])
     else:
         con.execute("""
             CREATE TABLE insider (
@@ -195,83 +189,67 @@ def compute_insider_features(
         _LOG.error("No OHLCV parquets found in %s", ohlcv_dir)
         return pl.DataFrame()
 
-    ohlcv_repr = repr([str(p) for p in ohlcv_parquets])
-    con.execute(f"""
+    ohlcv_glob = str(ohlcv_dir / "**" / "*.parquet")
+    con.execute("""
         CREATE TABLE spine AS
         SELECT DISTINCT ticker, date
-        FROM read_parquet({ohlcv_repr})
+        FROM read_parquet(?)
         ORDER BY ticker, date
-    """)
+    """, [ohlcv_glob])
 
     result_df = con.execute("""
         SELECT
             s.ticker,
             s.date,
 
-            -- insider_cluster_buy_90d: distinct buyers in last 90 days
-            NULLIF((
-                SELECT COUNT(DISTINCT i.insider_name)
-                FROM insider i
-                WHERE i.ticker = s.ticker
-                  AND i.transaction_code = 'P'
-                  AND i.transaction_date BETWEEN s.date - INTERVAL 90 DAY AND s.date
-            ), 0) AS insider_cluster_buy_90d,
+            -- insider_cluster_buy_90d: distinct buyers in 90-day window
+            NULLIF(
+                COUNT(DISTINCT CASE WHEN i90.transaction_code = 'P' THEN i90.insider_name END),
+                0
+            ) AS insider_cluster_buy_90d,
 
-            -- insider_net_value_30d: net buy value in millions over 30 days
-            CASE WHEN (
-                SELECT COUNT(*) FROM insider i
-                WHERE i.ticker = s.ticker
-                  AND i.transaction_date BETWEEN s.date - INTERVAL 30 DAY AND s.date
-            ) = 0 THEN NULL
+            -- insider_net_value_30d: net buy value in millions over 30-day window
+            CASE WHEN COUNT(i30.transaction_code) = 0 THEN NULL
             ELSE (
-                SELECT (
-                    COALESCE(SUM(CASE WHEN i.transaction_code = 'P' THEN i.value ELSE 0 END), 0.0)
-                    - COALESCE(SUM(CASE WHEN i.transaction_code = 'S' THEN i.value ELSE 0 END), 0.0)
-                ) / 1000000.0
-                FROM insider i
-                WHERE i.ticker = s.ticker
-                  AND i.transaction_date BETWEEN s.date - INTERVAL 30 DAY AND s.date
-            ) END AS insider_net_value_30d,
+                COALESCE(SUM(CASE WHEN i30.transaction_code = 'P' THEN i30.value ELSE 0 END), 0.0)
+                - COALESCE(SUM(CASE WHEN i30.transaction_code = 'S' THEN i30.value ELSE 0 END), 0.0)
+            ) / 1000000.0 END AS insider_net_value_30d,
 
-            -- insider_buy_sell_ratio_90d
-            CASE WHEN (
-                SELECT COUNT(*) FROM insider i
-                WHERE i.ticker = s.ticker
-                  AND i.transaction_date BETWEEN s.date - INTERVAL 90 DAY AND s.date
-            ) = 0 THEN NULL
+            -- insider_buy_sell_ratio_90d: purchase fraction in 90-day window
+            CASE WHEN COUNT(i90.transaction_code) = 0 THEN NULL
+            ELSE CAST(
+                COUNT(CASE WHEN i90.transaction_code = 'P' THEN 1 END) AS DOUBLE
+            ) / COUNT(i90.transaction_code) END AS insider_buy_sell_ratio_90d,
+
+            -- congress_net_buy_90d: net congressional buy in millions over 90 days
+            CASE WHEN COUNT(c90.transaction_type) = 0 THEN NULL
             ELSE (
-                SELECT CAST(SUM(CASE WHEN i.transaction_code = 'P' THEN 1 ELSE 0 END) AS DOUBLE)
-                       / COUNT(*)
-                FROM insider i
-                WHERE i.ticker = s.ticker
-                  AND i.transaction_date BETWEEN s.date - INTERVAL 90 DAY AND s.date
-            ) END AS insider_buy_sell_ratio_90d,
+                COALESCE(SUM(CASE WHEN c90.transaction_type = 'purchase' THEN c90.amount_mid ELSE 0 END), 0.0)
+                - COALESCE(SUM(CASE WHEN c90.transaction_type = 'sale' THEN c90.amount_mid ELSE 0 END), 0.0)
+            ) / 1000000.0 END AS congress_net_buy_90d,
 
-            -- congress_net_buy_90d
-            CASE WHEN (
-                SELECT COUNT(*) FROM congress c
-                WHERE c.ticker = s.ticker
-                  AND c.trade_date BETWEEN s.date - INTERVAL 90 DAY AND s.date
-            ) = 0 THEN NULL
-            ELSE (
-                SELECT (
-                    COALESCE(SUM(CASE WHEN c.transaction_type = 'purchase' THEN c.amount_mid ELSE 0 END), 0.0)
-                    - COALESCE(SUM(CASE WHEN c.transaction_type = 'sale' THEN c.amount_mid ELSE 0 END), 0.0)
-                ) / 1000000.0
-                FROM congress c
-                WHERE c.ticker = s.ticker
-                  AND c.trade_date BETWEEN s.date - INTERVAL 90 DAY AND s.date
-            ) END AS congress_net_buy_90d,
-
-            -- congress_trade_count_90d
-            NULLIF((
-                SELECT COUNT(*)
-                FROM congress c
-                WHERE c.ticker = s.ticker
-                  AND c.trade_date BETWEEN s.date - INTERVAL 90 DAY AND s.date
-            ), 0) AS congress_trade_count_90d
+            -- congress_trade_count_90d: total congressional trades in 90 days
+            NULLIF(COUNT(c90.transaction_type), 0) AS congress_trade_count_90d
 
         FROM spine s
+
+        -- 90-day insider window
+        LEFT JOIN insider i90
+            ON i90.ticker = s.ticker
+           AND i90.transaction_date BETWEEN s.date - INTERVAL 90 DAY AND s.date
+
+        -- 30-day insider window (separate join for different window)
+        LEFT JOIN insider i30
+            ON i30.ticker = s.ticker
+           AND i30.transaction_date BETWEEN s.date - INTERVAL 30 DAY AND s.date
+
+        -- 90-day congressional window
+        LEFT JOIN congress c90
+            ON c90.ticker = s.ticker
+           AND c90.trade_date BETWEEN s.date - INTERVAL 90 DAY AND s.date
+
+        GROUP BY s.ticker, s.date
+        ORDER BY s.ticker, s.date
     """).pl()
 
     _LOG.info(
