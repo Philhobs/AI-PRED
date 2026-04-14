@@ -89,3 +89,148 @@ def _parse_form4_xml(xml_text: str, ticker: str, filed_date: str) -> list[dict]:
         })
 
     return rows
+
+
+_EDGAR_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
+
+
+def _fetch_form4_filings(cik: str, ticker: str) -> list[dict]:
+    """Fetch Form 4 filing accession numbers from EDGAR submissions API.
+
+    Returns list of dicts with keys: accession (no dashes), filed.
+    """
+    cik_padded = cik.lstrip("0").zfill(10)
+    url = _EDGAR_SUBMISSIONS_URL.format(cik=cik_padded)
+    try:
+        resp = requests.get(url, headers=_HEADERS, timeout=30)
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        _LOG.warning("Failed to fetch submissions for %s (%s): %s", ticker, cik, exc)
+        return []
+
+    data = resp.json()
+    filings = data.get("filings", {}).get("recent", {})
+    forms = filings.get("form", [])
+    accessions = filings.get("accessionNumber", [])
+    filed_dates = filings.get("filingDate", [])
+
+    result = []
+    for form, accession, filed in zip(forms, accessions, filed_dates):
+        if form == "4":
+            result.append({
+                "accession": accession.replace("-", ""),
+                "filed": filed,
+            })
+
+    # Fetch older filings pages if present
+    older = data.get("filings", {}).get("files", [])
+    for file_entry in older:
+        older_url = f"https://data.sec.gov/submissions/{file_entry['name']}"
+        try:
+            time.sleep(0.1)
+            r2 = requests.get(older_url, headers=_HEADERS, timeout=30)
+            r2.raise_for_status()
+            older_data = r2.json()
+            o_forms = older_data.get("form", [])
+            o_accessions = older_data.get("accessionNumber", [])
+            o_dates = older_data.get("filingDate", [])
+            for form, accession, filed in zip(o_forms, o_accessions, o_dates):
+                if form == "4":
+                    result.append({
+                        "accession": accession.replace("-", ""),
+                        "filed": filed,
+                    })
+        except requests.RequestException as exc:
+            _LOG.warning("Failed to fetch older submissions page for %s: %s", ticker, exc)
+
+    _LOG.info("Found %d Form 4 filings for %s", len(result), ticker)
+    return result
+
+
+def _fetch_form4_xml(cik: str, accession: str, ticker: str) -> str:
+    """Fetch raw Form 4 XML text for one filing. Returns empty string on failure.
+
+    Accession is the 18-digit string with no dashes.
+    Reconstructs dashed form for the filename: XXXXXXXXXX-YY-ZZZZZZ.
+    """
+    cik_num = cik.lstrip("0")
+    accession_dashed = f"{accession[:10]}-{accession[10:12]}-{accession[12:]}"
+    url = f"https://www.sec.gov/Archives/edgar/data/{cik_num}/{accession}/{accession_dashed}.txt"
+    try:
+        resp = requests.get(url, headers=_HEADERS, timeout=30)
+        if resp.status_code == 404:
+            # Try fetching the filing index to find the actual form 4 document
+            index_url = f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik_num}&type=4&dateb=&owner=include&count=40&search_text="
+            # Simpler fallback: try common alternate filename
+            alt_url = f"https://www.sec.gov/Archives/edgar/data/{cik_num}/{accession}/form4.xml"
+            alt_resp = requests.get(alt_url, headers=_HEADERS, timeout=30)
+            if alt_resp.status_code == 200:
+                return alt_resp.text
+            return ""
+        resp.raise_for_status()
+        return resp.text
+    except requests.RequestException as exc:
+        _LOG.warning("Failed to fetch Form 4 XML for %s accession %s: %s", ticker, accession, exc)
+        return ""
+
+
+def _empty_insider_df() -> pl.DataFrame:
+    """Return an empty DataFrame with the full insider trades schema."""
+    return pl.DataFrame(schema={
+        "ticker": pl.Utf8,
+        "filed_date": pl.Date,
+        "transaction_date": pl.Date,
+        "insider_name": pl.Utf8,
+        "insider_title": pl.Utf8,
+        "transaction_code": pl.Utf8,
+        "shares": pl.Float64,
+        "price_per_share": pl.Float64,
+        "value": pl.Float64,
+    })
+
+
+def fetch_corporate_insider_trades(ticker: str) -> pl.DataFrame:
+    """Fetch all Form 4 P/S transactions for one ticker from EDGAR.
+
+    Returns DataFrame with schema:
+    [ticker, filed_date, transaction_date, insider_name, insider_title,
+     transaction_code, shares, price_per_share, value]
+    """
+    cik = CIK_MAP.get(ticker)
+    if not cik:
+        _LOG.warning("No CIK found for ticker %s", ticker)
+        return _empty_insider_df()
+
+    filings = _fetch_form4_filings(cik, ticker)
+    all_rows: list[dict] = []
+
+    for i, filing in enumerate(filings):
+        time.sleep(0.1)  # SEC rate limit: 10 req/s
+        xml_text = _fetch_form4_xml(cik, filing["accession"], ticker)
+        if not xml_text:
+            continue
+        rows = _parse_form4_xml(xml_text, ticker=ticker, filed_date=filing["filed"])
+        all_rows.extend(rows)
+        if (i + 1) % 50 == 0:
+            _LOG.info("%s: processed %d/%d filings, %d transactions so far",
+                      ticker, i + 1, len(filings), len(all_rows))
+
+    if not all_rows:
+        return _empty_insider_df()
+
+    df = pl.DataFrame(all_rows).with_columns([
+        pl.col("filed_date").str.to_date("%Y-%m-%d"),
+        pl.col("transaction_date").str.to_date("%Y-%m-%d", strict=False),
+        pl.col("shares").cast(pl.Float64),
+        pl.col("price_per_share").cast(pl.Float64),
+        pl.col("value").cast(pl.Float64),
+    ])
+    return df
+
+
+def save_corporate_insider_trades(df: pl.DataFrame, ticker: str, output_dir: Path) -> None:
+    """Write to data/raw/financials/insider_trades/<TICKER>/transactions.parquet."""
+    out_path = output_dir / ticker / "transactions.parquet"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    df.write_parquet(out_path, compression="snappy")
+    _LOG.info("Saved %d insider trade rows to %s", len(df), out_path)

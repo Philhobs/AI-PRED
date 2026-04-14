@@ -4,6 +4,7 @@ Skip in CI or offline: pytest tests/ -m 'not integration'
 Run manually: pytest tests/test_integration.py -m integration -v
 """
 import pytest
+import polars as pl
 from pathlib import Path
 
 
@@ -44,3 +45,18 @@ def test_opensky_arrivals_at_klax():
     start_ts = end_ts - 3600  # Last hour
     results = fetch_arrivals_at_airport("KLAX", start_ts, end_ts)
     assert isinstance(results, list)
+
+
+@pytest.mark.integration
+def test_fetch_form4_nvda():
+    """Fetch real NVDA Form 4 data from EDGAR. Requires network (~2-5 min)."""
+    from ingestion.insider_trading_ingestion import fetch_corporate_insider_trades
+    df = fetch_corporate_insider_trades("NVDA")
+    assert isinstance(df, pl.DataFrame)
+    assert len(df) >= 10, f"Expected >=10 rows, got {len(df)}"
+    expected_cols = {
+        "ticker", "filed_date", "transaction_date", "insider_name",
+        "insider_title", "transaction_code", "shares", "price_per_share", "value",
+    }
+    assert expected_cols.issubset(set(df.columns))
+    assert set(df["transaction_code"].unique().to_list()).issubset({"P", "S"})
