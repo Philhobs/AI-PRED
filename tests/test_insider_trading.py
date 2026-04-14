@@ -1,4 +1,5 @@
 import pytest
+import polars as pl
 from ingestion.insider_trading_ingestion import _parse_form4_xml
 
 PURCHASE_XML = """<?xml version="1.0"?>
@@ -106,3 +107,72 @@ def test_parse_form4_xml_with_namespace():
     rows = _parse_form4_xml(namespaced_xml, ticker="NVDA", filed_date="2024-01-15")
     assert len(rows) == 1
     assert rows[0]["transaction_code"] == "P"
+
+
+from ingestion.insider_trading_ingestion import _parse_house_json_records, _parse_amount_band
+from ingestion.insider_trading_ingestion import CIK_MAP
+
+HOUSE_FIXTURE = [
+    {
+        "ticker": "NVDA",
+        "transaction_date": "2024-01-10",
+        "disclosure_date": "2024-01-20",
+        "representative": "John Representative",
+        "party": "democrat",
+        "type": "purchase",
+        "amount": "$15,001 - $50,000",
+        "asset_description": "NVIDIA Corp",
+    },
+    {
+        "ticker": "XYZ_NOT_IN_WATCHLIST",
+        "transaction_date": "2024-01-10",
+        "disclosure_date": "2024-01-20",
+        "representative": "Jane Rep",
+        "party": "republican",
+        "type": "sale",
+        "amount": "$1,001 - $15,000",
+        "asset_description": "XYZ Corp",
+    },
+    {
+        "ticker": "MSFT",
+        "transaction_date": "2024-01-12",
+        "disclosure_date": "2024-01-22",
+        "representative": "Bob Senator",
+        "party": "republican",
+        "type": "sale",
+        "amount": "$50,001 - $100,000",
+        "asset_description": "Microsoft Corp",
+    },
+]
+
+
+def test_parse_congressional_house_json():
+    """Fixture House JSON → correct ticker, amount_mid, chamber."""
+    watchlist = set(CIK_MAP.keys())
+    df = _parse_house_json_records(HOUSE_FIXTURE, watchlist=watchlist)
+    assert set(df["ticker"].to_list()) == {"NVDA", "MSFT"}
+    nvda_row = df.filter(pl.col("ticker") == "NVDA").row(0, named=True)
+    assert nvda_row["transaction_type"] == "purchase"
+    assert nvda_row["chamber"] == "house"
+    assert nvda_row["amount_mid"] == pytest.approx(32500.5)
+    msft_row = df.filter(pl.col("ticker") == "MSFT").row(0, named=True)
+    assert msft_row["amount_mid"] == pytest.approx(75000.5)
+
+
+def test_congressional_filters_to_watchlist():
+    """Tickers outside 24-ticker watchlist are excluded."""
+    watchlist = set(CIK_MAP.keys())
+    df = _parse_house_json_records(HOUSE_FIXTURE, watchlist=watchlist)
+    assert "XYZ_NOT_IN_WATCHLIST" not in df["ticker"].to_list()
+
+
+def test_congressional_amount_parsing():
+    """Amount band strings parse to correct midpoints."""
+    assert _parse_amount_band("$1,001 - $15,000") == pytest.approx(8000.5)
+    assert _parse_amount_band("$15,001 - $50,000") == pytest.approx(32500.5)
+    assert _parse_amount_band("$50,001 - $100,000") == pytest.approx(75000.5)
+    assert _parse_amount_band("$100,001 - $250,000") == pytest.approx(175000.5)
+    assert _parse_amount_band("$250,001 - $500,000") == pytest.approx(375000.5)
+    assert _parse_amount_band("$500,001 - $1,000,000") == pytest.approx(750000.5)
+    assert _parse_amount_band("over $1,000,000") == pytest.approx(1500000.0)
+    assert _parse_amount_band("unknown format") is None

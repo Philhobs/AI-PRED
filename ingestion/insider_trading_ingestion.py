@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
+import re as _re
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -227,3 +228,234 @@ def save_corporate_insider_trades(df: pl.DataFrame, ticker: str, output_dir: Pat
     out_path.parent.mkdir(parents=True, exist_ok=True)
     df.write_parquet(out_path, compression="snappy")
     _LOG.info("Saved %d insider trade rows to %s", len(df), out_path)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Congressional trades
+# ─────────────────────────────────────────────────────────────────────────────
+
+_HOUSE_URL = "https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/all_transactions.json"
+_SENATE_EFTS_URL = (
+    "https://efts.senate.gov/LATEST/search-index"
+    "?q=&dateRange=custom&forms=PTR&limit=100&offset={offset}"
+)
+
+
+def _parse_amount_band(amount_str: str) -> float | None:
+    """Parse amount band string like '$15,001 - $50,000' to midpoint.
+
+    Returns None if the string cannot be parsed.
+    """
+    if not amount_str:
+        return None
+    s = amount_str.strip().lower().replace(",", "")
+    if "over" in s:
+        return 1_500_000.0
+    nums = _re.findall(r"\$?([\d]+)", s)
+    if len(nums) >= 2:
+        return (float(nums[0]) + float(nums[1])) / 2
+    if len(nums) == 1:
+        return float(nums[0])
+    return None
+
+
+def _empty_congressional_df() -> pl.DataFrame:
+    """Return empty congressional trades DataFrame with correct schema."""
+    return pl.DataFrame(schema={
+        "ticker": pl.Utf8,
+        "trade_date": pl.Date,
+        "politician_name": pl.Utf8,
+        "chamber": pl.Utf8,
+        "party": pl.Utf8,
+        "transaction_type": pl.Utf8,
+        "amount_low": pl.Float64,
+        "amount_high": pl.Float64,
+        "amount_mid": pl.Float64,
+    })
+
+
+def _parse_house_json_records(records: list[dict], watchlist: set[str]) -> pl.DataFrame:
+    """Parse House Stock Watcher JSON records, filter to watchlist tickers.
+
+    Returns DataFrame with congressional trades schema.
+    """
+    rows = []
+    for rec in records:
+        ticker = str(rec.get("ticker", "")).upper().strip()
+        if ticker not in watchlist:
+            continue
+        amount_mid = _parse_amount_band(rec.get("amount", ""))
+        if amount_mid is None:
+            amount_mid = 0.0
+        amount_str = str(rec.get("amount", "")).replace(",", "")
+        nums = _re.findall(r"\$?([\d]+)", amount_str)
+        amount_low = float(nums[0]) if len(nums) >= 1 else 0.0
+        amount_high = float(nums[1]) if len(nums) >= 2 else amount_low
+
+        trade_date = rec.get("transaction_date") or rec.get("disclosure_date", "")
+        txn_type = str(rec.get("type", "")).lower()
+        if "purchase" in txn_type or "buy" in txn_type:
+            txn_type = "purchase"
+        elif "sale" in txn_type or "sell" in txn_type:
+            txn_type = "sale"
+
+        rows.append({
+            "ticker": ticker,
+            "trade_date": trade_date,
+            "politician_name": str(rec.get("representative", "")),
+            "chamber": "house",
+            "party": str(rec.get("party", "")).lower(),
+            "transaction_type": txn_type,
+            "amount_low": amount_low,
+            "amount_high": amount_high,
+            "amount_mid": amount_mid,
+        })
+
+    if not rows:
+        return _empty_congressional_df()
+
+    return (
+        pl.DataFrame(rows)
+        .with_columns(pl.col("trade_date").str.to_date("%Y-%m-%d", strict=False))
+        .drop_nulls(subset=["trade_date"])
+    )
+
+
+def fetch_congressional_trades_house() -> pl.DataFrame:
+    """Fetch all House Stock Watcher transactions, filter to watchlist tickers."""
+    watchlist = set(CIK_MAP.keys())
+    _LOG.info("Fetching House Stock Watcher data...")
+    try:
+        resp = requests.get(_HOUSE_URL, headers=_HEADERS, timeout=60)
+        resp.raise_for_status()
+        records = resp.json()
+    except requests.RequestException as exc:
+        _LOG.warning("Failed to fetch House Stock Watcher data: %s", exc)
+        return _empty_congressional_df()
+
+    df = _parse_house_json_records(records, watchlist=watchlist)
+    _LOG.info("House trades: %d rows for watchlist tickers", len(df))
+    return df
+
+
+def fetch_congressional_trades_senate() -> pl.DataFrame:
+    """Fetch Senate PTR filings, paginate until <100 records per page.
+
+    Filters to watchlist tickers by extracting ticker from parentheses in asset_name,
+    e.g. 'NVIDIA Corp (NVDA)' → 'NVDA'.
+    """
+    watchlist = set(CIK_MAP.keys())
+    all_rows: list[dict] = []
+    offset = 0
+
+    while True:
+        time.sleep(1.0)  # Senate EFTS rate limit
+        url = _SENATE_EFTS_URL.format(offset=offset)
+        try:
+            resp = requests.get(url, headers=_HEADERS, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+        except requests.RequestException as exc:
+            _LOG.warning("Failed to fetch Senate EFTS at offset %d: %s", offset, exc)
+            break
+
+        hits = data.get("hits", {}).get("hits", [])
+        if not hits:
+            break
+
+        for hit in hits:
+            src = hit.get("_source", {})
+            asset_name = str(src.get("asset_name", ""))
+            ticker_match = _re.search(r"\(([A-Z]{1,5})\)", asset_name)
+            if not ticker_match:
+                continue
+            ticker = ticker_match.group(1)
+            if ticker not in watchlist:
+                continue
+
+            txn_type = str(src.get("type", "")).lower()
+            if "purchase" in txn_type or "buy" in txn_type:
+                txn_type = "purchase"
+            elif "sale" in txn_type or "sell" in txn_type:
+                txn_type = "sale"
+
+            amount_mid = _parse_amount_band(src.get("amount", "")) or 0.0
+            amount_str = str(src.get("amount", "")).replace(",", "")
+            nums = _re.findall(r"\$?([\d]+)", amount_str)
+            amount_low = float(nums[0]) if len(nums) >= 1 else 0.0
+            amount_high = float(nums[1]) if len(nums) >= 2 else amount_low
+
+            trade_date = src.get("transaction_date") or src.get("date", "")
+            first_name = str(src.get("first_name", "")).strip()
+            last_name = str(src.get("last_name", "")).strip()
+            politician_name = f"{first_name} {last_name}".strip()
+
+            all_rows.append({
+                "ticker": ticker,
+                "trade_date": trade_date,
+                "politician_name": politician_name,
+                "chamber": "senate",
+                "party": str(src.get("senator_party", "")).lower(),
+                "transaction_type": txn_type,
+                "amount_low": amount_low,
+                "amount_high": amount_high,
+                "amount_mid": amount_mid,
+            })
+
+        _LOG.info("Senate EFTS: fetched %d records at offset %d", len(hits), offset)
+        if len(hits) < 100:
+            break
+        offset += 100
+
+    if not all_rows:
+        return _empty_congressional_df()
+
+    return (
+        pl.DataFrame(all_rows)
+        .with_columns(pl.col("trade_date").str.to_date("%Y-%m-%d", strict=False))
+        .drop_nulls(subset=["trade_date"])
+    )
+
+
+def save_congressional_trades(df: pl.DataFrame, output_dir: Path) -> None:
+    """Write to data/raw/financials/congressional_trades/all_transactions.parquet."""
+    out_path = output_dir / "all_transactions.parquet"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    df.write_parquet(out_path, compression="snappy")
+    _LOG.info("Saved %d congressional trade rows to %s", len(df), out_path)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# __main__ — full ingestion run
+# ─────────────────────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+    project_root = Path(__file__).parent.parent
+    insider_dir = project_root / "data" / "raw" / "financials" / "insider_trades"
+    congressional_dir = project_root / "data" / "raw" / "financials" / "congressional_trades"
+
+    tickers = list(CIK_MAP.keys())
+    _LOG.info("Fetching Form 4 filings for %d tickers...", len(tickers))
+
+    for ticker in tickers:
+        _LOG.info("--- %s ---", ticker)
+        df = fetch_corporate_insider_trades(ticker)
+        if len(df) > 0:
+            save_corporate_insider_trades(df, ticker, insider_dir)
+        else:
+            _LOG.info("No Form 4 P/S transactions found for %s", ticker)
+
+    _LOG.info("Fetching congressional trades...")
+    house_df = fetch_congressional_trades_house()
+    senate_df = fetch_congressional_trades_senate()
+
+    dfs_to_concat = [d for d in [house_df, senate_df] if len(d) > 0]
+    if dfs_to_concat:
+        combined = pl.concat(dfs_to_concat)
+        save_congressional_trades(combined, congressional_dir)
+    else:
+        _LOG.warning("No congressional trades found for watchlist tickers")
+
+    _LOG.info("Insider trading ingestion complete.")
