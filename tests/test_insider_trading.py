@@ -109,61 +109,56 @@ def test_parse_form4_xml_with_namespace():
     assert rows[0]["transaction_code"] == "P"
 
 
-from ingestion.insider_trading_ingestion import _parse_house_json_records, _parse_amount_band
+from ingestion.insider_trading_ingestion import _parse_ptr_pdf_text, _parse_amount_band
 from ingestion.insider_trading_ingestion import CIK_MAP
 
-HOUSE_FIXTURE = [
-    {
-        "ticker": "NVDA",
-        "transaction_date": "2024-01-10",
-        "disclosure_date": "2024-01-20",
-        "representative": "John Representative",
-        "party": "democrat",
-        "type": "purchase",
-        "amount": "$15,001 - $50,000",
-        "asset_description": "NVIDIA Corp",
-    },
-    {
-        "ticker": "XYZ_NOT_IN_WATCHLIST",
-        "transaction_date": "2024-01-10",
-        "disclosure_date": "2024-01-20",
-        "representative": "Jane Rep",
-        "party": "republican",
-        "type": "sale",
-        "amount": "$1,001 - $15,000",
-        "asset_description": "XYZ Corp",
-    },
-    {
-        "ticker": "MSFT",
-        "transaction_date": "2024-01-12",
-        "disclosure_date": "2024-01-22",
-        "representative": "Bob Senator",
-        "party": "republican",
-        "type": "sale",
-        "amount": "$50,001 - $100,000",
-        "asset_description": "Microsoft Corp",
-    },
-]
+# Synthetic PTR PDF text matching the format of disclosures-clerk.house.gov PDFs
+_PTR_TEXT_FIXTURE = """
+Filing ID #99999999
+Name: Hon. Test Representative
+Status: Member
+State/District: CA01
+
+ID Owner Asset Transaction Date Notification Amount Cap.
+Type Date Gains >
+SP NVIDIA Corporation - Common P 01/14/2025 01/14/2025 $250,001 -
+Stock (NVDA) [ST] $500,000
+SP Microsoft Corp. (MSFT) [ST] S 01/20/2025 01/22/2025 $50,001 - $100,000
+SP XYZ Unknown Corp. (XYZ) [ST] P 01/21/2025 01/23/2025 $1,001 - $15,000
+"""
 
 
-def test_parse_congressional_house_json():
-    """Fixture House JSON → correct ticker, amount_mid, chamber."""
+def test_parse_ptr_pdf_text_extracts_watchlist_tickers():
+    """PTR PDF text → correct tickers, types, amounts for watchlist members."""
     watchlist = set(CIK_MAP.keys())
-    df = _parse_house_json_records(HOUSE_FIXTURE, watchlist=watchlist)
-    assert set(df["ticker"].to_list()) == {"NVDA", "MSFT"}
-    nvda_row = df.filter(pl.col("ticker") == "NVDA").row(0, named=True)
-    assert nvda_row["transaction_type"] == "purchase"
-    assert nvda_row["chamber"] == "house"
-    assert nvda_row["amount_mid"] == pytest.approx(32500.5)
-    msft_row = df.filter(pl.col("ticker") == "MSFT").row(0, named=True)
-    assert msft_row["amount_mid"] == pytest.approx(75000.5)
+    rows = _parse_ptr_pdf_text(_PTR_TEXT_FIXTURE, "Test Representative", watchlist)
+    tickers = {r["ticker"] for r in rows}
+    assert "NVDA" in tickers
+    assert "MSFT" in tickers
+    assert "XYZ" not in tickers  # not in watchlist
+
+    nvda = next(r for r in rows if r["ticker"] == "NVDA")
+    assert nvda["transaction_type"] == "purchase"
+    assert nvda["chamber"] == "house"
+    assert nvda["amount_low"] == pytest.approx(250001.0)
+    assert nvda["amount_high"] == pytest.approx(500000.0)
+
+    msft = next(r for r in rows if r["ticker"] == "MSFT")
+    assert msft["transaction_type"] == "sale"
+    assert msft["amount_mid"] == pytest.approx(75000.5)
 
 
-def test_congressional_filters_to_watchlist():
-    """Tickers outside 24-ticker watchlist are excluded."""
-    watchlist = set(CIK_MAP.keys())
-    df = _parse_house_json_records(HOUSE_FIXTURE, watchlist=watchlist)
-    assert "XYZ_NOT_IN_WATCHLIST" not in df["ticker"].to_list()
+def test_parse_ptr_pdf_text_deduplicates():
+    """Same (ticker, date, type) appearing on multiple lines is not double-counted."""
+    watchlist = {"NVDA"}
+    text = """
+SP NVIDIA Corporation - Common P 01/14/2025 01/14/2025 $250,001 -
+Stock (NVDA) [ST] $500,000
+SP NVIDIA Corporation - Common P 01/14/2025 01/14/2025 $250,001 -
+Stock (NVDA) [ST] $500,000
+"""
+    rows = _parse_ptr_pdf_text(text, "Test Rep", watchlist)
+    assert len(rows) == 1
 
 
 def test_congressional_amount_parsing():

@@ -6,10 +6,13 @@ Congressional trades: House Stock Watcher bulk JSON + Senate EFTS paginated API.
 """
 from __future__ import annotations
 
+import io
 import logging
 import re as _re
 import time
 import xml.etree.ElementTree as ET
+import zipfile
+from datetime import datetime, date
 from pathlib import Path
 
 import polars as pl
@@ -233,11 +236,8 @@ def save_corporate_insider_trades(df: pl.DataFrame, ticker: str, output_dir: Pat
 # Congressional trades
 # ─────────────────────────────────────────────────────────────────────────────
 
-_HOUSE_URL = "https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/all_transactions.json"
-_SENATE_EFTS_URL = (
-    "https://efts.senate.gov/LATEST/search-index"
-    "?q=&dateRange=custom&forms=PTR&limit=100&offset={offset}"
-)
+_HOUSE_INDEX_URL = "https://disclosures-clerk.house.gov/public_disc/financial-pdfs/{year}FD.zip"
+_HOUSE_PDF_URL = "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/{year}/{doc_id}.pdf"
 
 
 def _parse_amount_band(amount_str: str) -> float | None:
@@ -273,167 +273,182 @@ def _empty_congressional_df() -> pl.DataFrame:
     })
 
 
-def _parse_house_json_records(records: list[dict], watchlist: set[str]) -> pl.DataFrame:
-    """Parse House Stock Watcher JSON records, filter to watchlist tickers.
+def _fetch_house_ptr_index(year: int) -> list[dict]:
+    """Download annual House disclosure ZIP and return list of PTR filing dicts."""
+    url = _HOUSE_INDEX_URL.format(year=year)
+    try:
+        resp = requests.get(url, headers=_HEADERS, timeout=60)
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        _LOG.warning("Failed to download House index for %d: %s", year, exc)
+        return []
 
-    Returns DataFrame with congressional trades schema.
+    with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+        with zf.open(f"{year}FD.xml") as f:
+            tree = ET.parse(f)
+
+    return [
+        {
+            "last": m.findtext("Last", ""),
+            "first": m.findtext("First", ""),
+            "year": year,
+            "filing_date": m.findtext("FilingDate", ""),
+            "doc_id": m.findtext("DocID", ""),
+        }
+        for m in tree.findall("Member")
+        if m.findtext("FilingType") == "P"
+    ]
+
+
+def _parse_ptr_pdf_text(text: str, politician_name: str, watchlist: set[str]) -> list[dict]:
+    """Extract stock trades from PTR PDF text for watchlist tickers.
+
+    Each transaction in the text has a ticker in parentheses, e.g. '(NVDA)',
+    preceded (within 3 lines) by a transaction type 'P' or 'S' and a date.
     """
-    rows = []
-    for rec in records:
-        ticker = str(rec.get("ticker", "")).upper().strip()
+    lines = text.split("\n")
+    rows: list[dict] = []
+    seen: set[tuple] = set()  # deduplicate (ticker, date, type)
+
+    for i, line in enumerate(lines):
+        ticker_match = _re.search(r"\(([A-Z]{1,5})\)", line)
+        if not ticker_match:
+            continue
+        ticker = ticker_match.group(1)
         if ticker not in watchlist:
             continue
-        amount_str = str(rec.get("amount", ""))
-        amount_mid = _parse_amount_band(amount_str) or 0.0
-        # Extract low/high from same string for consistency
-        clean = amount_str.replace(",", "")
-        if "over" in clean.lower():
-            amount_low = 1_000_000.0
-            amount_high = float("inf")  # upper bound not disclosed
-        else:
-            nums = _re.findall(r"\$?([\d]+)", clean)
-            amount_low = float(nums[0]) if len(nums) >= 1 else 0.0
-            amount_high = float(nums[1]) if len(nums) >= 2 else amount_low
 
-        trade_date = rec.get("transaction_date") or rec.get("disclosure_date", "")
-        if not rec.get("transaction_date") and trade_date:
-            _LOG.debug("Using disclosure_date as trade_date for %s %s", ticker, trade_date)
-        txn_type = str(rec.get("type", "")).lower()
-        if "purchase" in txn_type or "buy" in txn_type:
-            txn_type = "purchase"
-        elif "sale" in txn_type or "sell" in txn_type:
-            txn_type = "sale"
+        # Context for type/date: current + 3 preceding lines (transaction type always precedes ticker)
+        pre_context = " ".join(lines[max(0, i - 3):i + 1])
 
-        if txn_type not in ("purchase", "sale"):
-            _LOG.debug("Unknown transaction type %r for %s — skipping", txn_type, ticker)
+        # Transaction type: prefer match on current line (type+date on same line as ticker);
+        # fall back to pre_context for wrapped descriptions where ticker is on a continuation line.
+        _TYPE_PAT = r"(?<!\w)([PS])\s*(?:\(partial\))?\s+(\d{2}/\d{2}/\d{4})"
+        type_match = _re.search(_TYPE_PAT, line) or _re.search(_TYPE_PAT, pre_context)
+        if not type_match:
             continue
+        txn_type = "purchase" if type_match.group(1) == "P" else "sale"
+        txn_date_str = type_match.group(2)
+        try:
+            txn_date = datetime.strptime(txn_date_str, "%m/%d/%Y").date()
+        except ValueError:
+            continue
+
+        # Dedup: same (ticker, date, type) from different PDF lines
+        key = (ticker, txn_date, txn_type)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        # Amount range: only from pre_context (preceding + current line) to avoid
+        # bleeding into the next transaction's amounts on the following line
+        amounts = [float(a.replace(",", "")) for a in _re.findall(r"\$([\d,]+)", pre_context)]
+        if len(amounts) >= 2:
+            amount_low, amount_high = sorted(amounts[-2:])
+        elif len(amounts) == 1:
+            amount_low = amount_high = amounts[0]
+        else:
+            amount_low = amount_high = 0.0
 
         rows.append({
             "ticker": ticker,
-            "trade_date": trade_date,
-            "politician_name": str(rec.get("representative", "")),
+            "trade_date": txn_date,
+            "politician_name": politician_name,
             "chamber": "house",
-            "party": str(rec.get("party", "")).lower(),
+            "party": "",
             "transaction_type": txn_type,
             "amount_low": amount_low,
             "amount_high": amount_high,
-            "amount_mid": amount_mid,
+            "amount_mid": (amount_low + amount_high) / 2,
         })
 
-    if not rows:
-        return _empty_congressional_df()
-
-    return (
-        pl.DataFrame(rows)
-        .with_columns(pl.col("trade_date").str.to_date("%Y-%m-%d", strict=False))
-        .drop_nulls(subset=["trade_date"])
-    )
+    return rows
 
 
-def fetch_congressional_trades_house() -> pl.DataFrame:
-    """Fetch all House Stock Watcher transactions, filter to watchlist tickers."""
-    watchlist = set(CIK_MAP.keys())
-    _LOG.info("Fetching House Stock Watcher data...")
+def fetch_congressional_trades_house(days_back: int = 365) -> pl.DataFrame:
+    """Fetch House PTR filings from disclosures-clerk.house.gov.
+
+    Downloads the annual filing index ZIP for the current and prior year,
+    filters to PTRs filed within `days_back` days, then downloads and parses
+    each PDF with pdfplumber to extract stock transactions for watchlist tickers.
+    """
     try:
-        resp = requests.get(_HOUSE_URL, headers=_HEADERS, timeout=60)
-        resp.raise_for_status()
-        records = resp.json()
-    except requests.RequestException as exc:
-        _LOG.warning("Failed to fetch House Stock Watcher data: %s", exc)
+        import pdfplumber
+    except ImportError:
+        _LOG.warning("pdfplumber not installed — run: pip install pdfplumber")
         return _empty_congressional_df()
 
-    df = _parse_house_json_records(records, watchlist=watchlist)
-    _LOG.info("House trades: %d rows for watchlist tickers", len(df))
+    watchlist = set(CIK_MAP.keys())
+    cutoff_date = date.today().replace(year=date.today().year) - __import__("datetime").timedelta(days=days_back)
+    current_year = date.today().year
+    all_rows: list[dict] = []
+
+    for year in [current_year, current_year - 1]:
+        ptrs = _fetch_house_ptr_index(year)
+        _LOG.info("House %d: %d PTR filings in index", year, len(ptrs))
+
+        # Filter to recent filings only
+        recent = []
+        for ptr in ptrs:
+            try:
+                fd = datetime.strptime(ptr["filing_date"], "%m/%d/%Y").date()
+                if fd >= cutoff_date:
+                    recent.append(ptr)
+            except ValueError:
+                pass
+        _LOG.info("House %d: %d PTRs filed within %d days", year, len(recent), days_back)
+
+        for i, ptr in enumerate(recent):
+            doc_id = ptr["doc_id"]
+            politician_name = f"{ptr['first']} {ptr['last']}".strip()
+            pdf_url = _HOUSE_PDF_URL.format(year=year, doc_id=doc_id)
+
+            try:
+                pdf_resp = requests.get(pdf_url, headers=_HEADERS, timeout=30)
+                pdf_resp.raise_for_status()
+            except requests.RequestException as exc:
+                _LOG.debug("Failed to fetch PDF %s: %s", doc_id, exc)
+                continue
+
+            try:
+                with pdfplumber.open(io.BytesIO(pdf_resp.content)) as pdf:
+                    text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+            except Exception as exc:
+                _LOG.debug("Failed to parse PDF %s: %s", doc_id, exc)
+                continue
+
+            rows = _parse_ptr_pdf_text(text, politician_name, watchlist)
+            all_rows.extend(rows)
+
+            if (i + 1) % 25 == 0:
+                _LOG.info(
+                    "House %d: %d/%d PDFs processed, %d matching rows so far",
+                    year, i + 1, len(recent), len(all_rows),
+                )
+            time.sleep(0.3)  # Be polite to the server
+
+    if not all_rows:
+        _LOG.warning("No House congressional trades found for watchlist tickers")
+        return _empty_congressional_df()
+
+    df = pl.DataFrame(all_rows)
+    _LOG.info("House trades: %d rows for %d unique tickers", len(df), df["ticker"].n_unique())
     return df
 
 
 def fetch_congressional_trades_senate() -> pl.DataFrame:
-    """Fetch Senate PTR filings, paginate until <100 records per page.
+    """Fetch Senate PTR filings.
 
-    Filters to watchlist tickers by extracting ticker from parentheses in asset_name,
-    e.g. 'NVIDIA Corp (NVDA)' → 'NVDA'.
+    Note: efts.senate.gov (the previous source) is no longer accessible (NXDOMAIN).
+    Senate data currently unavailable without a paid API key (e.g. QuiverQuant).
+    Returns an empty DataFrame — congressional features will rely on House data only.
     """
-    watchlist = set(CIK_MAP.keys())
-    all_rows: list[dict] = []
-    offset = 0
-
-    while True:
-        url = _SENATE_EFTS_URL.format(offset=offset)
-        try:
-            resp = requests.get(url, headers=_HEADERS, timeout=30)
-            resp.raise_for_status()
-            data = resp.json()
-        except requests.RequestException as exc:
-            _LOG.warning("Failed to fetch Senate EFTS at offset %d: %s", offset, exc)
-            break
-
-        hits = data.get("hits", {}).get("hits", [])
-        if not hits:
-            break
-
-        for hit in hits:
-            src = hit.get("_source", {})
-            asset_name = str(src.get("asset_name", ""))
-            ticker_match = _re.search(r"\(([A-Z]{2,5})\)", asset_name)
-            if not ticker_match:
-                continue
-            ticker = ticker_match.group(1)
-            if ticker not in watchlist:
-                continue
-
-            txn_type = str(src.get("type", "")).lower()
-            if "purchase" in txn_type or "buy" in txn_type:
-                txn_type = "purchase"
-            elif "sale" in txn_type or "sell" in txn_type:
-                txn_type = "sale"
-
-            if txn_type not in ("purchase", "sale"):
-                _LOG.debug("Unknown transaction type %r for %s — skipping", txn_type, ticker)
-                continue
-
-            amount_str = str(src.get("amount", ""))
-            amount_mid = _parse_amount_band(amount_str) or 0.0
-            # Extract low/high from same string for consistency
-            clean = amount_str.replace(",", "")
-            if "over" in clean.lower():
-                amount_low = 1_000_000.0
-                amount_high = float("inf")  # upper bound not disclosed
-            else:
-                nums = _re.findall(r"\$?([\d]+)", clean)
-                amount_low = float(nums[0]) if len(nums) >= 1 else 0.0
-                amount_high = float(nums[1]) if len(nums) >= 2 else amount_low
-
-            trade_date = src.get("transaction_date") or src.get("date", "")
-            first_name = str(src.get("first_name", "")).strip()
-            last_name = str(src.get("last_name", "")).strip()
-            politician_name = f"{first_name} {last_name}".strip()
-
-            all_rows.append({
-                "ticker": ticker,
-                "trade_date": trade_date,
-                "politician_name": politician_name,
-                "chamber": "senate",
-                "party": str(src.get("senator_party", "")).lower(),
-                "transaction_type": txn_type,
-                "amount_low": amount_low,
-                "amount_high": amount_high,
-                "amount_mid": amount_mid,
-            })
-
-        _LOG.info("Senate EFTS: fetched %d records at offset %d", len(hits), offset)
-        if len(hits) < 100:
-            break
-        offset += 100
-        time.sleep(1.0)  # Rate limit: 1s between Senate EFTS pages
-
-    if not all_rows:
-        return _empty_congressional_df()
-
-    return (
-        pl.DataFrame(all_rows)
-        .with_columns(pl.col("trade_date").str.to_date("%Y-%m-%d", strict=False))
-        .drop_nulls(subset=["trade_date"])
+    _LOG.warning(
+        "Senate EFTS (efts.senate.gov) is no longer accessible. "
+        "Senate congressional trades unavailable. "
+        "Features will use House data only."
     )
+    return _empty_congressional_df()
 
 
 def save_congressional_trades(df: pl.DataFrame, output_dir: Path) -> None:

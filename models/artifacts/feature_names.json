@@ -13,5 +13,15 @@
   "operating_margin",
   "capex_to_revenue",
   "debt_to_equity",
-  "current_ratio"
+  "current_ratio",
+  "insider_cluster_buy_90d",
+  "insider_net_value_30d",
+  "insider_buy_sell_ratio_90d",
+  "congress_net_buy_90d",
+  "congress_trade_count_90d",
+  "sentiment_mean_7d",
+  "sentiment_std_7d",
+  "article_count_7d",
+  "sentiment_momentum_14d",
+  "ticker_vs_market_7d"
 ]
