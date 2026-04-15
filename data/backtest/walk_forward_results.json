@@ -1,0 +1,19 @@
+{
+  "train_cutoff": "2022-12-31",
+  "test_start": "2023-01-01",
+  "test_end": "2024-03-31",
+  "train_rows": 124989,
+  "test_rows": 7360,
+  "monthly_rebalance_dates": 15,
+  "ensemble_weights": {
+    "lgbm": 0.5154491216651996,
+    "rf": 0.48455087833480043,
+    "ridge": 0.0
+  },
+  "mean_ic": 0.1906,
+  "ic_std": 0.417,
+  "ic_tstat": 1.7698,
+  "hit_rate": 0.5333,
+  "mean_spread": 0.196,
+  "feature_count": 31
+}
