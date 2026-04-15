@@ -99,8 +99,8 @@ def build_training_dataset(
             df = df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
 
     # Join sentiment signal features (backward asof join on ticker, date)
-    # ohlcv_dir = data/raw/financials/ohlcv → parent.parent = data/raw
-    sentiment_features_dir = ohlcv_dir.parent.parent / "news" / "sentiment_features"
+    # fundamentals_dir = data/raw/financials/fundamentals → .parent.parent = data/raw
+    sentiment_features_dir = fundamentals_dir.parent.parent / "news" / "sentiment_features"
     if sentiment_features_dir.exists():
         df = join_sentiment_features(df, sentiment_features_dir)
     else:
@@ -110,7 +110,8 @@ def build_training_dataset(
             sentiment_features_dir,
         )
         for col in SENTIMENT_FEATURE_COLS:
-            df = df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
+            dtype = pl.Int64 if col == "article_count_7d" else pl.Float64
+            df = df.with_columns(pl.lit(None).cast(dtype).alias(col))
 
     return (
         df.select(["ticker", "date"] + FEATURE_COLS + ["label_return_1y"])

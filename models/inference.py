@@ -108,7 +108,8 @@ def run_inference(
         feature_df = join_sentiment_features(feature_df, sentiment_features_dir)
     else:
         for col in SENTIMENT_FEATURE_COLS:
-            feature_df = feature_df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
+            dtype = pl.Int64 if col == "article_count_7d" else pl.Float64
+            feature_df = feature_df.with_columns(pl.lit(None).cast(dtype).alias(col))
 
     # ── Step 3: Load and validate artifacts ──────────────────────────────────
     feature_names_saved = json.loads(
