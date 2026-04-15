@@ -187,3 +187,12 @@ def test_join_sentiment_features_backward_asof(tmp_path):
     # AMD (no parquet written) gets null features
     assert amd_row["sentiment_mean_7d"][0] is None
     assert amd_row["article_count_7d"][0] is None
+
+
+def test_tag_tickers_new_companies():
+    """New supply chain companies must be tagged by their common names."""
+    from ingestion.news_ingestion import _tag_tickers
+    assert _tag_tickers("Arista Networks reports record switch sales", "") == ["ANET"]
+    assert _tag_tickers("Quanta Services wins grid contract", "") == ["PWR"]
+    assert _tag_tickers("Freeport-McMoRan copper output rises", "") == ["FCX"]
+    assert _tag_tickers("NuScale Power SMR reactor approved", "") == ["SMR"]
