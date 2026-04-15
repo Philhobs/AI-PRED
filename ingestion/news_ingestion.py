@@ -1,4 +1,5 @@
 import feedparser
+import re
 import requests
 import time
 from datetime import datetime, timezone, timedelta
@@ -31,6 +32,57 @@ RSS_FEEDS = {
 FERC_RSS = "https://elibrary.ferc.gov/eLibrary/search?activity=recent&rss=true"
 BIS_RSS = "https://www.bis.doc.gov/index.php?format=feed&type=rss"
 
+TICKER_ALIASES: dict[str, list[str]] = {
+    "MSFT": ["Microsoft"],
+    "AMZN": ["Amazon", "AWS", "Amazon Web Services"],
+    "GOOGL": ["Google", "Alphabet", "DeepMind"],
+    "META":  ["Meta", "Facebook"],
+    "NVDA":  ["NVIDIA", "Nvidia", "NVDA"],
+    "AMD":   ["AMD", "Advanced Micro Devices"],
+    "AVGO":  ["Broadcom"],
+    "MRVL":  ["Marvell"],
+    "TSM":   ["TSMC", "Taiwan Semiconductor"],
+    "ASML":  ["ASML"],
+    "AMAT":  ["Applied Materials"],
+    "LRCX":  ["Lam Research"],
+    "KLAC":  ["KLA"],
+    "VRT":   ["Vertiv"],
+    "SMCI":  ["Super Micro", "Supermicro"],
+    "DELL":  ["Dell"],
+    "HPE":   ["Hewlett Packard Enterprise", "HPE"],
+    "EQIX":  ["Equinix"],
+    "DLR":   ["Digital Realty"],
+    "AMT":   ["American Tower"],
+    "CEG":   ["Constellation Energy"],
+    "VST":   ["Vistra"],
+    "NRG":   ["NRG Energy"],
+    "TLN":   ["Talen Energy"],
+}
+
+# Pre-compiled patterns keyed by ticker — avoids recompiling on every article
+_TICKER_PATTERNS: dict[str, re.Pattern] = {
+    ticker: re.compile(
+        "|".join(r"\b" + re.escape(alias) + r"\b" for alias in aliases),
+        re.IGNORECASE,
+    )
+    for ticker, aliases in TICKER_ALIASES.items()
+}
+
+
+def _tag_tickers(title: str, content: str) -> list[str]:
+    """Return sorted list of tickers whose aliases appear in title or content.
+
+    Case-insensitive word-boundary match. One article can match multiple tickers.
+    Returns [] if no match.
+    """
+    text = f"{title} {content}"
+    return sorted(
+        ticker
+        for ticker, pattern in _TICKER_PATTERNS.items()
+        if pattern.search(text)
+    )
+
+
 SCHEMA = pa.schema([
     pa.field("timestamp", pa.timestamp("s", tz="UTC")),
     pa.field("source", pa.string()),
@@ -43,6 +95,7 @@ SCHEMA = pa.schema([
     pa.field("num_articles", pa.int32()),
     pa.field("actors", pa.list_(pa.string())),
     pa.field("countries", pa.list_(pa.string())),
+    pa.field("mentioned_tickers", pa.list_(pa.string())),
 ])
 
 
@@ -81,6 +134,7 @@ def fetch_gdelt_events(query: str, days_back: int = 1) -> list[dict]:
             "num_articles": 1,
             "actors": [],
             "countries": [],
+            "mentioned_tickers": _tag_tickers(art.get("title", ""), art.get("excerpt", "")),
         }
         for art in data.get("articles", [])
     ]
@@ -131,6 +185,10 @@ def scrape_rss_feeds(output_dir: Path):
                     "num_articles": 1,
                     "actors": [],
                     "countries": [],
+                    "mentioned_tickers": _tag_tickers(
+                        entry.get("title", ""),
+                        entry.get("summary") or "",
+                    ),
                 })
             print(f"[News] {source}: {len(feed.entries)} articles")
         except Exception as e:
