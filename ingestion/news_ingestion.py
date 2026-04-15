@@ -33,30 +33,30 @@ FERC_RSS = "https://elibrary.ferc.gov/eLibrary/search?activity=recent&rss=true"
 BIS_RSS = "https://www.bis.doc.gov/index.php?format=feed&type=rss"
 
 TICKER_ALIASES: dict[str, list[str]] = {
-    "MSFT": ["Microsoft"],
-    "AMZN": ["Amazon", "AWS", "Amazon Web Services"],
-    "GOOGL": ["Google", "Alphabet", "DeepMind"],
-    "META":  ["Meta", "Facebook"],
-    "NVDA":  ["NVIDIA", "Nvidia", "NVDA"],
+    "MSFT": ["Microsoft", "MSFT"],
+    "AMZN": ["Amazon", "AWS", "Amazon Web Services", "AMZN"],
+    "GOOGL": ["Google", "Alphabet", "DeepMind", "GOOGL"],
+    "META":  ["Meta", "Facebook", "META"],
+    "NVDA":  ["NVIDIA", "NVDA"],
     "AMD":   ["AMD", "Advanced Micro Devices"],
-    "AVGO":  ["Broadcom"],
-    "MRVL":  ["Marvell"],
-    "TSM":   ["TSMC", "Taiwan Semiconductor"],
+    "AVGO":  ["Broadcom", "AVGO"],
+    "MRVL":  ["Marvell", "MRVL"],
+    "TSM":   ["TSMC", "Taiwan Semiconductor", "TSM"],
     "ASML":  ["ASML"],
-    "AMAT":  ["Applied Materials"],
-    "LRCX":  ["Lam Research"],
-    "KLAC":  ["KLA"],
-    "VRT":   ["Vertiv"],
-    "SMCI":  ["Super Micro", "Supermicro"],
-    "DELL":  ["Dell"],
+    "AMAT":  ["Applied Materials", "AMAT"],
+    "LRCX":  ["Lam Research", "LRCX"],
+    "KLAC":  ["KLA", "KLAC"],
+    "VRT":   ["Vertiv", "VRT"],
+    "SMCI":  ["Super Micro", "Supermicro", "SMCI"],
+    "DELL":  ["Dell", "DELL"],
     "HPE":   ["Hewlett Packard Enterprise", "HPE"],
-    "EQIX":  ["Equinix"],
-    "DLR":   ["Digital Realty"],
-    "AMT":   ["American Tower"],
-    "CEG":   ["Constellation Energy"],
-    "VST":   ["Vistra"],
-    "NRG":   ["NRG Energy"],
-    "TLN":   ["Talen Energy"],
+    "EQIX":  ["Equinix", "EQIX"],
+    "DLR":   ["Digital Realty", "DLR"],
+    "AMT":   ["American Tower", "AMT"],
+    "CEG":   ["Constellation Energy", "CEG"],
+    "VST":   ["Vistra", "VST"],
+    "NRG":   ["NRG Energy", "NRG"],
+    "TLN":   ["Talen Energy", "TLN"],
 }
 
 # Pre-compiled patterns keyed by ticker — avoids recompiling on every article
@@ -75,7 +75,7 @@ def _tag_tickers(title: str, content: str) -> list[str]:
     Case-insensitive word-boundary match. One article can match multiple tickers.
     Returns [] if no match.
     """
-    text = f"{title} {content}"
+    text = f"{title or ''} {content or ''}"
     return sorted(
         ticker
         for ticker, pattern in _TICKER_PATTERNS.items()
