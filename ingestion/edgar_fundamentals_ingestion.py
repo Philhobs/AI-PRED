@@ -1,7 +1,7 @@
 """
 EDGAR XBRL Historical Fundamentals Ingestion
 
-Fetches ~12–15 years of quarterly financial data from SEC EDGAR for all 24
+Fetches ~12–15 years of quarterly financial data from SEC EDGAR for all 83
 watchlist tickers. Computes 9 fundamental features (same schema as
 fundamental_ingestion.py) and writes to:
   data/raw/financials/fundamentals/<TICKER>/quarterly.parquet
@@ -119,7 +119,7 @@ CIK_MAP: dict[str, str] = {
     "ECL":   "0000031462",
 }
 
-ANNUAL_FILERS: set[str] = {"TSM", "ASML", "NOK", "ARM", "LIN", "IREN"}
+ANNUAL_FILERS: set[str] = {"TSM", "ASML", "NOK", "ARM"}
 
 # ── XBRL concept lists (tried in order; first non-empty wins) ─────────────────
 
