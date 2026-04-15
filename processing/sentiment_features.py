@@ -258,8 +258,8 @@ def join_sentiment_features(df: pl.DataFrame, sentiment_features_dir: Path) -> p
         "sentiment_momentum_14d",
         "ticker_vs_market_7d",
     ]
-    parquets = list(sentiment_features_dir.glob("*/daily.parquet"))
-    if not parquets:
+    parquet_glob = str(sentiment_features_dir / "*/daily.parquet")
+    if not any(sentiment_features_dir.glob("*/daily.parquet")):
         _LOG.warning(
             "No sentiment feature parquets in %s — features will be null",
             sentiment_features_dir,
@@ -269,7 +269,7 @@ def join_sentiment_features(df: pl.DataFrame, sentiment_features_dir: Path) -> p
             df = df.with_columns(pl.lit(None).cast(dtype).alias(col))
         return df
 
-    features = pl.concat([pl.read_parquet(p) for p in parquets]).sort(["ticker", "date"])
+    features = pl.scan_parquet(parquet_glob).sort(["ticker", "date"]).collect()
     features_renamed = features.rename({"date": "feature_date"})
 
     df_sorted = df.sort(["ticker", "date"])
