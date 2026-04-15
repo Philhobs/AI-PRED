@@ -23,5 +23,11 @@
   "sentiment_std_7d",
   "article_count_7d",
   "sentiment_momentum_14d",
-  "ticker_vs_market_7d"
+  "ticker_vs_market_7d",
+  "short_vol_ratio_10d",
+  "short_vol_ratio_30d",
+  "short_ratio_momentum",
+  "eps_surprise_last",
+  "eps_surprise_mean_4q",
+  "eps_beat_streak"
 ]

@@ -28,7 +28,9 @@ from processing.fundamental_features import join_fundamentals
 from processing.insider_features import join_insider_features
 from processing.label_builder import build_labels
 from processing.price_features import build_price_features
+from processing.earnings_features import join_earnings_features
 from processing.sentiment_features import join_sentiment_features
+from processing.short_interest_features import join_short_interest_features
 
 _LOG = logging.getLogger(__name__)
 
@@ -57,7 +59,20 @@ SENTIMENT_FEATURE_COLS = [
     "sentiment_momentum_14d",
     "ticker_vs_market_7d",
 ]
-FEATURE_COLS = PRICE_FEATURE_COLS + FUND_FEATURE_COLS + INSIDER_FEATURE_COLS + SENTIMENT_FEATURE_COLS  # 25 features total
+SHORT_INTEREST_FEATURE_COLS = [
+    "short_vol_ratio_10d",
+    "short_vol_ratio_30d",
+    "short_ratio_momentum",
+]
+EARNINGS_FEATURE_COLS = [
+    "eps_surprise_last",
+    "eps_surprise_mean_4q",
+    "eps_beat_streak",
+]
+FEATURE_COLS = (
+    PRICE_FEATURE_COLS + FUND_FEATURE_COLS + INSIDER_FEATURE_COLS
+    + SENTIMENT_FEATURE_COLS + SHORT_INTEREST_FEATURE_COLS + EARNINGS_FEATURE_COLS  # 31 features total
+)
 
 
 # ── Data assembly ─────────────────────────────────────────────────────────────
@@ -111,6 +126,33 @@ def build_training_dataset(
         )
         for col in SENTIMENT_FEATURE_COLS:
             dtype = pl.Int64 if col == "article_count_7d" else pl.Float64
+            df = df.with_columns(pl.lit(None).cast(dtype).alias(col))
+
+    # Join short interest features (backward asof join on ticker, date)
+    si_features_dir = fundamentals_dir.parent / "short_interest_features"
+    if si_features_dir.exists():
+        df = join_short_interest_features(df, si_features_dir)
+    else:
+        _LOG.warning(
+            "Short interest features directory not found at %s — "
+            "short interest columns will be null. Run: python processing/short_interest_features.py",
+            si_features_dir,
+        )
+        for col in SHORT_INTEREST_FEATURE_COLS:
+            df = df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
+
+    # Join earnings surprise features (backward asof join on ticker, date)
+    earnings_features_dir = fundamentals_dir.parent / "earnings_features"
+    if earnings_features_dir.exists():
+        df = join_earnings_features(df, earnings_features_dir)
+    else:
+        _LOG.warning(
+            "Earnings features directory not found at %s — "
+            "earnings columns will be null. Run: python processing/earnings_features.py",
+            earnings_features_dir,
+        )
+        for col in EARNINGS_FEATURE_COLS:
+            dtype = pl.Int32 if col == "eps_beat_streak" else pl.Float64
             df = df.with_columns(pl.lit(None).cast(dtype).alias(col))
 
     return (

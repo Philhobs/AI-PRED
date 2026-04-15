@@ -18,11 +18,13 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from models.train import FEATURE_COLS, INSIDER_FEATURE_COLS, SENTIMENT_FEATURE_COLS
+from models.train import FEATURE_COLS, INSIDER_FEATURE_COLS, SENTIMENT_FEATURE_COLS, SHORT_INTEREST_FEATURE_COLS, EARNINGS_FEATURE_COLS
+from processing.earnings_features import join_earnings_features
 from processing.fundamental_features import join_fundamentals
 from processing.insider_features import join_insider_features
 from processing.price_features import build_price_features
 from processing.sentiment_features import join_sentiment_features
+from processing.short_interest_features import join_short_interest_features
 
 
 def _load_pickle(artifacts_dir: Path, name: str):
@@ -109,6 +111,23 @@ def run_inference(
     else:
         for col in SENTIMENT_FEATURE_COLS:
             dtype = pl.Int64 if col == "article_count_7d" else pl.Float64
+            feature_df = feature_df.with_columns(pl.lit(None).cast(dtype).alias(col))
+
+    # ── Step 2d: Short interest features ─────────────────────────────────────
+    si_features_dir = data_dir / "financials" / "short_interest_features"
+    if si_features_dir.exists():
+        feature_df = join_short_interest_features(feature_df, si_features_dir)
+    else:
+        for col in SHORT_INTEREST_FEATURE_COLS:
+            feature_df = feature_df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
+
+    # ── Step 2e: Earnings surprise features ──────────────────────────────────
+    earnings_features_dir = data_dir / "financials" / "earnings_features"
+    if earnings_features_dir.exists():
+        feature_df = join_earnings_features(feature_df, earnings_features_dir)
+    else:
+        for col in EARNINGS_FEATURE_COLS:
+            dtype = pl.Int32 if col == "eps_beat_streak" else pl.Float64
             feature_df = feature_df.with_columns(pl.lit(None).cast(dtype).alias(col))
 
     # ── Step 3: Load and validate artifacts ──────────────────────────────────
