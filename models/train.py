@@ -28,6 +28,7 @@ from processing.fundamental_features import join_fundamentals
 from processing.insider_features import join_insider_features
 from processing.label_builder import build_labels
 from processing.price_features import build_price_features
+from processing.sentiment_features import join_sentiment_features
 
 _LOG = logging.getLogger(__name__)
 
@@ -49,7 +50,14 @@ INSIDER_FEATURE_COLS = [
     "congress_net_buy_90d",
     "congress_trade_count_90d",
 ]
-FEATURE_COLS = PRICE_FEATURE_COLS + FUND_FEATURE_COLS + INSIDER_FEATURE_COLS  # 20 features total
+SENTIMENT_FEATURE_COLS = [
+    "sentiment_mean_7d",
+    "sentiment_std_7d",
+    "article_count_7d",
+    "sentiment_momentum_14d",
+    "ticker_vs_market_7d",
+]
+FEATURE_COLS = PRICE_FEATURE_COLS + FUND_FEATURE_COLS + INSIDER_FEATURE_COLS + SENTIMENT_FEATURE_COLS  # 25 features total
 
 
 # ── Data assembly ─────────────────────────────────────────────────────────────
@@ -88,6 +96,20 @@ def build_training_dataset(
             insider_features_dir,
         )
         for col in INSIDER_FEATURE_COLS:
+            df = df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
+
+    # Join sentiment signal features (backward asof join on ticker, date)
+    # ohlcv_dir = data/raw/financials/ohlcv → parent.parent = data/raw
+    sentiment_features_dir = ohlcv_dir.parent.parent / "news" / "sentiment_features"
+    if sentiment_features_dir.exists():
+        df = join_sentiment_features(df, sentiment_features_dir)
+    else:
+        _LOG.warning(
+            "Sentiment features directory not found at %s — "
+            "sentiment columns will be null. Run: python processing/sentiment_features.py",
+            sentiment_features_dir,
+        )
+        for col in SENTIMENT_FEATURE_COLS:
             df = df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
 
     return (

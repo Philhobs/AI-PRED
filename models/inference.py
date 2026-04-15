@@ -18,10 +18,11 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from models.train import FEATURE_COLS, INSIDER_FEATURE_COLS
+from models.train import FEATURE_COLS, INSIDER_FEATURE_COLS, SENTIMENT_FEATURE_COLS
 from processing.fundamental_features import join_fundamentals
 from processing.insider_features import join_insider_features
 from processing.price_features import build_price_features
+from processing.sentiment_features import join_sentiment_features
 
 
 def _load_pickle(artifacts_dir: Path, name: str):
@@ -99,6 +100,14 @@ def run_inference(
         feature_df = join_insider_features(feature_df, insider_features_dir)
     else:
         for col in INSIDER_FEATURE_COLS:
+            feature_df = feature_df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
+
+    # ── Step 2c: Sentiment signal features ───────────────────────────────────
+    sentiment_features_dir = data_dir / "news" / "sentiment_features"  # data/raw/news/sentiment_features
+    if sentiment_features_dir.exists():
+        feature_df = join_sentiment_features(feature_df, sentiment_features_dir)
+    else:
+        for col in SENTIMENT_FEATURE_COLS:
             feature_df = feature_df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
 
     # ── Step 3: Load and validate artifacts ──────────────────────────────────
