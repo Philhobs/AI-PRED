@@ -23,3 +23,9 @@ def test_hyperscalers_are_cloud():
 def test_layers_returns_10():
     from ingestion.ticker_registry import layers
     assert len(layers()) == 10
+
+def test_layers_order():
+    from ingestion.ticker_registry import layers
+    result = layers()
+    assert result[0] == "cloud"
+    assert result[-1] == "metals"

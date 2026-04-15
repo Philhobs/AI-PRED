@@ -72,6 +72,8 @@ TICKERS: list[str] = sorted(TICKER_LAYERS.keys())
 
 def tickers_in_layer(layer: str) -> list[str]:
     """Return sorted list of tickers assigned to a given layer name."""
+    if layer not in LAYER_IDS:
+        raise ValueError(f"Unknown layer {layer!r}. Valid layers: {list(LAYER_IDS)}")
     return sorted(t for t, la in TICKER_LAYERS.items() if la == layer)
 
 
