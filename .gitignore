@@ -12,3 +12,4 @@ data/features/
 data/models/
 *.parquet
 *.duckdb
+models/artifacts/*.pkl
