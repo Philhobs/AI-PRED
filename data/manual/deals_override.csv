@@ -1,0 +1,24 @@
+date,party_a,party_b,deal_type,description,source_url
+2023-09-25,MSFT,CEG,power_purchase_agreement,"20yr 835MW nuclear PPA Three Mile Island restart",https://news.microsoft.com/2023/09/20/
+2024-03-18,AMZN,TLN,power_purchase_agreement,"Talen Energy nuclear deal Susquehanna plant 960MW",https://www.prnewswire.com/
+2024-05-20,NVDA,TSM,manufacturing_agreement,"CoWoS advanced packaging capacity reservation 2025-2027",https://www.digitimes.com/
+2024-01-08,GOOGL,CEG,power_purchase_agreement,"Google nuclear PPA Constellation carbon-free energy",https://blog.google/
+2024-06-12,MSFT,ORCL,customer_contract,"Microsoft Azure Oracle Database@Azure $10B GPU cluster",https://www.microsoft.com/
+2024-04-23,NVDA,PSTG,customer_contract,"NVIDIA-Certified storage joint go-to-market Pure Storage",https://ir.purestorage.com/
+2024-03-19,NVDA,NTAP,customer_contract,"ONTAP AI certified NVIDIA DGX systems NetApp",https://www.netapp.com/
+2024-06-03,AMZN,SO,power_purchase_agreement,"Amazon Southern Company nuclear energy agreement",https://www.aboutamazon.com/
+2024-09-20,MSFT,BWX,investment,"Microsoft investment advanced nuclear reactor SMR",https://www.bwxt.com/
+2024-07-15,GOOGL,NEE,power_purchase_agreement,"Google NextEra renewable energy PPA 1GW",https://www.nexteraenergy.com/
+2024-08-01,META,EXC,power_purchase_agreement,"Meta Exelon nuclear power agreement data centers",https://investor.exeloncorp.com/
+2024-10-14,AMZN,CEG,power_purchase_agreement,"Amazon Constellation nuclear PPA 835MW",https://www.aboutamazon.com/
+2024-09-30,NVDA,ANET,customer_contract,"Arista Networks Ethernet switching AI cluster NVIDIA",https://investors.arista.com/
+2025-01-07,MSFT,OKLO,investment,"Microsoft 500MW Oklo microreactor power agreement",https://www.oklo.com/
+2025-02-01,AMZN,OKLO,investment,"Amazon Oklo advanced reactor agreement data centers",https://www.oklo.com/
+2024-11-15,NVDA,VRT,customer_contract,"Vertiv NVIDIA liquid cooling partnership DGX systems",https://ir.vertiv.com/
+2024-08-22,EQIX,PWR,construction_contract,"Equinix Quanta Services data center electrical construction",https://investor.equinix.com/
+2024-05-01,NEE,PWR,construction_contract,"NextEra Quanta Services grid transmission construction",https://investor.nexteraenergy.com/
+2024-03-01,NVDA,MU,supply_agreement,"Micron HBM3E memory supply for H100 H200 B100 GPUs",https://investor.micron.com/
+2024-07-10,TSM,ENTG,supply_agreement,"TSMC Entegris ultra-pure materials supply agreement fab N2",https://ir.entegris.com/
+2024-06-18,AMAT,ICHR,supply_agreement,"ICHR Ichor fluid delivery systems Applied Materials tools",https://ir.ichorholdings.com/
+2024-04-05,FCX,VRT,supply_agreement,"Freeport copper supply liquid cooling infrastructure Vertiv",https://fcx.com/
+2025-01-15,GEV,CEG,manufacturing_agreement,"GE Vernova turbines Constellation nuclear plant grid",https://www.gevernova.com/
