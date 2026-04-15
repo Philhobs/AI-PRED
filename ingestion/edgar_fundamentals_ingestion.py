@@ -23,6 +23,7 @@ _LOG = logging.getLogger(__name__)
 # ── CIK map ───────────────────────────────────────────────────────────────────
 
 CIK_MAP: dict[str, str] = {
+    # ── Existing 24 tickers (unchanged) ──────────────────────────────────────
     "MSFT":  "0000789019",
     "AMZN":  "0001018724",
     "GOOGL": "0001652044",
@@ -47,9 +48,78 @@ CIK_MAP: dict[str, str] = {
     "VST":   "0001692819",
     "NRG":   "0001013871",
     "TLN":   "0000099590",
+    # ── Layer 1 — New Cloud tickers ───────────────────────────────────────────
+    "ORCL":  "0001341439",
+    "IBM":   "0000051143",
+    # ── Layer 2 — New Compute tickers ─────────────────────────────────────────
+    "INTC":  "0000050863",
+    "MU":    "0000723254",
+    "SNPS":  "0000883241",
+    "CDNS":  "0000813672",
+    # ARM (0001980994) and ASML already present — foreign filers, no Form 4
+    # ── Layer 3 — Semiconductor Equipment & Materials ─────────────────────────
+    "ENTG":  "0001101781",
+    "MKSI":  "0000062996",
+    "UCTT":  "0001275014",
+    "ICHR":  "0001677576",
+    "TER":   "0000097476",
+    "ONTO":  "0000315374",
+    "APD":   "0000002969",
+    "LIN":   "0001707092",
+    # ── Layer 4 — Networking / Interconnect ───────────────────────────────────
+    "ANET":  "0001313925",
+    "CSCO":  "0000858877",
+    "CIEN":  "0000936395",
+    "COHR":  "0000820318",
+    "LITE":  "0001439231",
+    "INFN":  "0001101680",
+    "VIAV":  "0000936744",
+    # NOK is a foreign private issuer — no Form 4
+    # ── Layer 5 — Servers / Storage / Systems ─────────────────────────────────
+    "NTAP":  "0001108320",
+    "PSTG":  "0001474432",
+    "STX":   "0001137789",
+    "WDC":   "0000106040",
+    # ── Layer 6 — Data Center Operators / REITs ───────────────────────────────
+    "CCI":   "0001051512",
+    "APLD":  "0001070050",
+    # IREN is an Australian company — no US Form 4 filings
+    # ── Layer 7 — Power / Energy / Nuclear ────────────────────────────────────
+    "NEE":   "0000753308",
+    "SO":    "0000092122",
+    "EXC":   "0001109357",
+    "ETR":   "0000049600",
+    "GEV":   "0001986936",
+    "BWX":   "0001643953",
+    "OKLO":  "0001840198",
+    "SMR":   "0001822928",
+    "FSLR":  "0001274494",
+    # ── Layer 8 — Cooling / Facilities / Backup Power ─────────────────────────
+    "NVENT": "0001681903",
+    "JCI":   "0000833444",
+    "TT":    "0001466258",
+    "CARR":  "0001783398",
+    "GNRC":  "0001474735",
+    "HUBB":  "0000048898",
+    # ── Layer 9 — Grid / Construction / Electrical ────────────────────────────
+    "PWR":   "0001108827",
+    "MTZ":   "0000015615",
+    "EME":   "0000105634",
+    "MYR":   "0000700923",
+    "IESC":  "0000049588",
+    "AGX":   "0001068875",
+    # ── Layer 10 — Metals / Materials ─────────────────────────────────────────
+    "FCX":   "0000831259",
+    "SCCO":  "0001001290",
+    "AA":    "0000004281",
+    "NUE":   "0000073309",
+    "STLD":  "0001022652",
+    "MP":    "0001801762",
+    "UUUU":  "0001477845",
+    "ECL":   "0000031462",
 }
 
-ANNUAL_FILERS: set[str] = {"TSM", "ASML"}
+ANNUAL_FILERS: set[str] = {"TSM", "ASML", "NOK", "ARM", "LIN", "IREN"}
 
 # ── XBRL concept lists (tried in order; first non-empty wins) ─────────────────
 

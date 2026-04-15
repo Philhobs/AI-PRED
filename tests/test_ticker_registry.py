@@ -29,3 +29,13 @@ def test_layers_order():
     result = layers()
     assert result[0] == "cloud"
     assert result[-1] == "metals"
+
+def test_cik_map_covers_domestic_tickers():
+    """CIK_MAP must have entries for all non-foreign tickers."""
+    from ingestion.edgar_fundamentals_ingestion import CIK_MAP
+    from ingestion.ticker_registry import TICKERS
+    # Foreign private issuers without SEC Form 4 filings — excluded by design
+    foreign = {"TSM", "ASML", "ARM", "NOK", "IREN"}
+    domestic = [t for t in TICKERS if t not in foreign]
+    missing = [t for t in domestic if t not in CIK_MAP]
+    assert missing == [], f"Missing CIKs for: {missing}"
