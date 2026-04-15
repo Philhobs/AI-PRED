@@ -97,3 +97,58 @@ def test_article_count_zero_is_zero_not_null():
     result = _compute_article_count_7d(articles, "NVDA", date(2024, 1, 14))
     assert result == 0
     assert result is not None
+
+
+def test_compute_ticker_sentiment_features_article_count(tmp_path):
+    """Bulk function must return article_count_7d == actual article count, not fanout multiple."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from processing.sentiment_features import compute_ticker_sentiment_features
+
+    # Write two scored news articles for NVDA, one for AMD, all within a 7d window
+    news_dir = tmp_path / "scored" / "date=2024-01-14"
+    news_dir.mkdir(parents=True)
+    from datetime import datetime, timezone
+    news_table = pa.table({
+        "timestamp": pa.array(
+            [
+                datetime(2024, 1, 10, tzinfo=timezone.utc),
+                datetime(2024, 1, 12, tzinfo=timezone.utc),
+                datetime(2024, 1, 11, tzinfo=timezone.utc),
+            ],
+            type=pa.timestamp("s", tz="UTC"),
+        ),
+        "mentioned_tickers": pa.array([["NVDA"], ["NVDA"], ["AMD"]], type=pa.list_(pa.string())),
+        "net_sentiment": pa.array([0.8, 0.4, 0.2], type=pa.float64()),
+    })
+    pq.write_table(news_table, news_dir / "data.parquet")
+
+    # Write OHLCV spine with two tickers
+    ohlcv_dir = tmp_path / "ohlcv" / "NVDA"
+    ohlcv_dir.mkdir(parents=True)
+    ohlcv_table = pa.table({
+        "ticker": pa.array(["NVDA", "NVDA", "AMD", "AMD"]),
+        "date": pa.array(
+            [date(2024, 1, 14), date(2024, 1, 13), date(2024, 1, 14), date(2024, 1, 13)],
+            type=pa.date32(),
+        ),
+        "close": pa.array([500.0, 490.0, 150.0, 148.0]),
+    })
+    pq.write_table(ohlcv_table, ohlcv_dir / "data.parquet")
+
+    result = compute_ticker_sentiment_features(
+        scored_news_dir=tmp_path / "scored",
+        ohlcv_dir=tmp_path / "ohlcv",
+    )
+
+    nvda_jan14 = result.filter(
+        (pl.col("ticker") == "NVDA") & (pl.col("date") == date(2024, 1, 14))
+    )
+    assert len(nvda_jan14) == 1
+    # Must be exactly 2 — not inflated by fanout from prior-window or market joins
+    assert nvda_jan14["article_count_7d"][0] == 2
+    # AMD has 1 article in the window
+    amd_jan14 = result.filter(
+        (pl.col("ticker") == "AMD") & (pl.col("date") == date(2024, 1, 14))
+    )
+    assert amd_jan14["article_count_7d"][0] == 1

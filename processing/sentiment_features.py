@@ -128,7 +128,7 @@ def compute_ticker_sentiment_features(
     with duckdb.connect() as con:
         ohlcv_glob = str(ohlcv_dir / "**" / "*.parquet")
         con.execute("""
-            CREATE TABLE spine AS
+            CREATE TEMP TABLE spine AS
             SELECT DISTINCT ticker, date
             FROM read_parquet(?)
             ORDER BY ticker, date
@@ -180,26 +180,47 @@ def compute_ticker_sentiment_features(
         """)
 
         result_df = con.execute("""
+            WITH agg7 AS (
+                SELECT s.ticker, s.date,
+                    AVG(ta7.net_sentiment)         AS sentiment_mean_7d,
+                    STDDEV_SAMP(ta7.net_sentiment) AS sentiment_std_7d,
+                    COUNT(ta7.net_sentiment)        AS article_count_7d
+                FROM spine s
+                LEFT JOIN ticker_articles ta7
+                    ON ta7.ticker = s.ticker
+                   AND ta7.article_date BETWEEN s.date - INTERVAL 7 DAY AND s.date
+                GROUP BY s.ticker, s.date
+            ),
+            agg14 AS (
+                SELECT s.ticker, s.date,
+                    AVG(ta14.net_sentiment) AS prior_mean_7d
+                FROM spine s
+                LEFT JOIN ticker_articles ta14
+                    ON ta14.ticker = s.ticker
+                   AND ta14.article_date BETWEEN s.date - INTERVAL 14 DAY
+                       AND s.date - INTERVAL 8 DAY
+                GROUP BY s.ticker, s.date
+            ),
+            market_agg AS (
+                SELECT s.ticker, s.date,
+                    AVG(md.market_mean) AS avg_market_mean
+                FROM spine s
+                LEFT JOIN market_daily md
+                    ON md.article_date BETWEEN s.date - INTERVAL 7 DAY AND s.date
+                GROUP BY s.ticker, s.date
+            )
             SELECT
-                s.ticker,
-                s.date,
-                AVG(ta7.net_sentiment)                              AS sentiment_mean_7d,
-                STDDEV_SAMP(ta7.net_sentiment)                      AS sentiment_std_7d,
-                COUNT(ta7.net_sentiment)                            AS article_count_7d,
-                AVG(ta7.net_sentiment) - AVG(ta14.net_sentiment)   AS sentiment_momentum_14d,
-                AVG(ta7.net_sentiment) - AVG(md.market_mean)       AS ticker_vs_market_7d
-            FROM spine s
-            LEFT JOIN ticker_articles ta7
-                ON ta7.ticker = s.ticker
-               AND ta7.article_date BETWEEN s.date - INTERVAL 7 DAY AND s.date
-            LEFT JOIN ticker_articles ta14
-                ON ta14.ticker = s.ticker
-               AND ta14.article_date BETWEEN s.date - INTERVAL 14 DAY
-                   AND s.date - INTERVAL 8 DAY
-            LEFT JOIN market_daily md
-                ON md.article_date BETWEEN s.date - INTERVAL 7 DAY AND s.date
-            GROUP BY s.ticker, s.date
-            ORDER BY s.ticker, s.date
+                a7.ticker,
+                a7.date,
+                a7.sentiment_mean_7d,
+                a7.sentiment_std_7d,
+                a7.article_count_7d,
+                a7.sentiment_mean_7d - a14.prior_mean_7d  AS sentiment_momentum_14d,
+                a7.sentiment_mean_7d - m.avg_market_mean  AS ticker_vs_market_7d
+            FROM agg7 a7
+            JOIN agg14 a14 USING (ticker, date)
+            JOIN market_agg m  USING (ticker, date)
+            ORDER BY a7.ticker, a7.date
         """).pl()
 
     _LOG.info(
@@ -244,7 +265,8 @@ def join_sentiment_features(df: pl.DataFrame, sentiment_features_dir: Path) -> p
             sentiment_features_dir,
         )
         for col in feature_cols:
-            df = df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
+            dtype = pl.Int64 if col == "article_count_7d" else pl.Float64
+            df = df.with_columns(pl.lit(None).cast(dtype).alias(col))
         return df
 
     features = pl.concat([pl.read_parquet(p) for p in parquets]).sort(["ticker", "date"])
