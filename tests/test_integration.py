@@ -75,3 +75,22 @@ def test_fetch_congressional_house():
     }
     assert expected_cols.issubset(set(df.columns))
     assert set(df["chamber"].unique().to_list()) == {"house"}
+
+
+@pytest.mark.integration
+def test_news_ingestion_tags_tickers():
+    """Real GDELT fetch — articles about NVIDIA get mentioned_tickers=['NVDA']."""
+    from ingestion.news_ingestion import fetch_gdelt_events
+    results = fetch_gdelt_events("NVIDIA datacenter semiconductor", days_back=7)
+    assert isinstance(results, list)
+    if not results:
+        pytest.skip("GDELT returned no results — acceptable for this query/window")
+    # All records must have the mentioned_tickers key
+    for rec in results:
+        assert "mentioned_tickers" in rec
+        assert isinstance(rec["mentioned_tickers"], list)
+    # At least one article should tag NVDA given the query
+    all_tagged = [t for rec in results for t in rec["mentioned_tickers"]]
+    assert "NVDA" in all_tagged, (
+        f"Expected NVDA in tagged tickers but got: {set(all_tagged)}"
+    )
