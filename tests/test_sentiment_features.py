@@ -152,3 +152,38 @@ def test_compute_ticker_sentiment_features_article_count(tmp_path):
         (pl.col("ticker") == "AMD") & (pl.col("date") == date(2024, 1, 14))
     )
     assert amd_jan14["article_count_7d"][0] == 1
+
+
+def test_join_sentiment_features_backward_asof(tmp_path):
+    """join_sentiment_features: backward asof join fills features and null-fills missing ticker."""
+    from processing.sentiment_features import join_sentiment_features, save_sentiment_features
+
+    # Write NVDA sentiment feature parquet (one row for Jan 14)
+    nvda_features = pl.DataFrame({
+        "ticker": ["NVDA"],
+        "date": pl.Series([date(2024, 1, 14)], dtype=pl.Date),
+        "sentiment_mean_7d": [0.6],
+        "sentiment_std_7d": [0.2],
+        "article_count_7d": pl.Series([2], dtype=pl.Int64),
+        "sentiment_momentum_14d": [0.1],
+        "ticker_vs_market_7d": [0.05],
+    })
+    save_sentiment_features(nvda_features, tmp_path)
+
+    # Training DataFrame: NVDA on Jan 14 (exact match) and AMD on Jan 14 (no features)
+    training_df = pl.DataFrame({
+        "ticker": ["NVDA", "AMD"],
+        "date": pl.Series([date(2024, 1, 14), date(2024, 1, 14)], dtype=pl.Date),
+    })
+
+    result = join_sentiment_features(training_df, tmp_path)
+
+    nvda_row = result.filter(pl.col("ticker") == "NVDA")
+    amd_row = result.filter(pl.col("ticker") == "AMD")
+
+    # NVDA gets its features
+    assert nvda_row["sentiment_mean_7d"][0] == pytest.approx(0.6)
+    assert nvda_row["article_count_7d"][0] == 2
+    # AMD (no parquet written) gets null features
+    assert amd_row["sentiment_mean_7d"][0] is None
+    assert amd_row["article_count_7d"][0] is None

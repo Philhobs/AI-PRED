@@ -218,8 +218,8 @@ def compute_ticker_sentiment_features(
                 a7.sentiment_mean_7d - a14.prior_mean_7d  AS sentiment_momentum_14d,
                 a7.sentiment_mean_7d - m.avg_market_mean  AS ticker_vs_market_7d
             FROM agg7 a7
-            JOIN agg14 a14 USING (ticker, date)
-            JOIN market_agg m  USING (ticker, date)
+            LEFT JOIN agg14 a14 USING (ticker, date)
+            LEFT JOIN market_agg m  USING (ticker, date)
             ORDER BY a7.ticker, a7.date
         """).pl()
 
@@ -269,6 +269,8 @@ def join_sentiment_features(df: pl.DataFrame, sentiment_features_dir: Path) -> p
             df = df.with_columns(pl.lit(None).cast(dtype).alias(col))
         return df
 
+    # collect() is intentional: join_asof requires a materialised, sorted DataFrame.
+    # Per-ticker parquets are small (≤50 tickers × daily rows), so memory is bounded.
     features = pl.scan_parquet(parquet_glob).sort(["ticker", "date"]).collect()
     features_renamed = features.rename({"date": "feature_date"})
 
