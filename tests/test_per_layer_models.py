@@ -56,3 +56,46 @@ def test_train_all_layers_creates_10_dirs(tmp_path, monkeypatch):
     # 10 layer directories should exist
     layer_dirs = list((tmp_path / "artifacts").glob("layer_*"))
     assert len(layer_dirs) == 10
+
+
+def test_inference_merges_all_layers(tmp_path, monkeypatch):
+    """run_inference returns one row per ticker across all 10 layers."""
+    import models.train as train_module
+    import models.inference as infer_module
+    from models.train import train_single_layer, FEATURE_COLS
+    from ingestion.ticker_registry import TICKERS, tickers_in_layer, layers as all_layers, LAYER_IDS
+
+    # Train minimal artifacts for each layer using synthetic data
+    artifacts_dir = tmp_path / "artifacts"
+    for layer in all_layers():
+        layer_id = LAYER_IDS[layer]
+        layer_dir = artifacts_dir / f"layer_{layer_id:02d}_{layer}"
+        df = _make_layer_df(layer, n_rows=80)
+        train_single_layer(df, layer_dir)
+
+    # Build a minimal price features DataFrame for all tickers
+    from datetime import date as _date2
+    import polars as pl
+    import numpy as np
+    rng = np.random.default_rng(0)
+    feature_rows = []
+    for t in TICKERS:
+        row = {"ticker": t, "date": _date2(2024, 1, 15)}
+        for col in FEATURE_COLS:
+            row[col] = float(rng.normal(0, 1))
+        feature_rows.append(row)
+    feature_df = pl.DataFrame(feature_rows).with_columns(pl.col("date").cast(pl.Date))
+
+    # Monkeypatch _build_feature_df to return our synthetic features
+    monkeypatch.setattr(infer_module, "_build_feature_df", lambda *a, **kw: feature_df)
+
+    result = infer_module.run_inference(
+        date_str="2024-01-15",
+        data_dir=tmp_path / "raw",
+        artifacts_dir=artifacts_dir,
+        output_dir=tmp_path / "predictions",
+    )
+    assert len(result) == len(TICKERS)
+    assert result["rank"].min() == 1
+    assert result["rank"].max() == len(TICKERS)
+    assert "layer" in result.columns
