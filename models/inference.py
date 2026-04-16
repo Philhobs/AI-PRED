@@ -18,9 +18,10 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from models.train import FEATURE_COLS, INSIDER_FEATURE_COLS, SENTIMENT_FEATURE_COLS, SHORT_INTEREST_FEATURE_COLS, EARNINGS_FEATURE_COLS
+from models.train import FEATURE_COLS, INSIDER_FEATURE_COLS, SENTIMENT_FEATURE_COLS, SHORT_INTEREST_FEATURE_COLS, EARNINGS_FEATURE_COLS, GRAPH_FEATURE_COLS
 from processing.earnings_features import join_earnings_features
 from processing.fundamental_features import join_fundamentals
+from processing.graph_features import join_graph_features
 from processing.insider_features import join_insider_features
 from processing.price_features import build_price_features
 from processing.sentiment_features import join_sentiment_features
@@ -129,6 +130,14 @@ def run_inference(
         for col in EARNINGS_FEATURE_COLS:
             dtype = pl.Int32 if col == "eps_beat_streak" else pl.Float64
             feature_df = feature_df.with_columns(pl.lit(None).cast(dtype).alias(col))
+
+    # ── Step 2f: Graph features ───────────────────────────────────────────────
+    graph_features_dir = data_dir / "graph" / "features"
+    if graph_features_dir.exists():
+        feature_df = join_graph_features(feature_df, graph_features_dir)
+    else:
+        for col in GRAPH_FEATURE_COLS:
+            feature_df = feature_df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
 
     # ── Step 3: Load and validate artifacts ──────────────────────────────────
     feature_names_saved = json.loads(

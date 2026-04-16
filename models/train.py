@@ -31,6 +31,8 @@ from processing.price_features import build_price_features
 from processing.earnings_features import join_earnings_features
 from processing.sentiment_features import join_sentiment_features
 from processing.short_interest_features import join_short_interest_features
+from ingestion.ticker_registry import LAYER_IDS, tickers_in_layer, layers as all_layers
+from processing.graph_features import join_graph_features
 
 _LOG = logging.getLogger(__name__)
 
@@ -69,9 +71,15 @@ EARNINGS_FEATURE_COLS = [
     "eps_surprise_mean_4q",
     "eps_beat_streak",
 ]
+GRAPH_FEATURE_COLS = [
+    "graph_partner_momentum_30d",
+    "graph_deal_count_90d",
+    "graph_hops_to_hyperscaler",
+]
 FEATURE_COLS = (
     PRICE_FEATURE_COLS + FUND_FEATURE_COLS + INSIDER_FEATURE_COLS
-    + SENTIMENT_FEATURE_COLS + SHORT_INTEREST_FEATURE_COLS + EARNINGS_FEATURE_COLS  # 31 features total
+    + SENTIMENT_FEATURE_COLS + SHORT_INTEREST_FEATURE_COLS
+    + EARNINGS_FEATURE_COLS + GRAPH_FEATURE_COLS  # 34 features total
 )
 
 
@@ -80,10 +88,12 @@ FEATURE_COLS = (
 def build_training_dataset(
     ohlcv_dir: Path,
     fundamentals_dir: Path,
+    layer: str | None = None,
 ) -> pl.DataFrame:
     """
-    Assemble the full labeled training dataset.
+    Assemble the full labeled training dataset, optionally filtered to one layer.
 
+    layer: if given, filters to tickers in that layer only (for per-layer training).
     Returns DataFrame with columns: ticker, date, FEATURE_COLS..., label_return_1y.
     Returns empty DataFrame if no OHLCV data exists.
     """
@@ -91,7 +101,16 @@ def build_training_dataset(
     if labels.is_empty():
         return pl.DataFrame()
 
+    # Filter to layer tickers if specified
+    if layer is not None:
+        layer_tickers = tickers_in_layer(layer)
+        labels = labels.filter(pl.col("ticker").is_in(layer_tickers))
+        if labels.is_empty():
+            return pl.DataFrame()
+
     price_df = build_price_features(ohlcv_dir)
+    if layer is not None:
+        price_df = price_df.filter(pl.col("ticker").is_in(layer_tickers))
     price_features = price_df.select(["ticker", "date"] + PRICE_FEATURE_COLS)
 
     # Inner join: keep only rows with complete 252-day forward labels
@@ -155,6 +174,14 @@ def build_training_dataset(
             dtype = pl.Int32 if col == "eps_beat_streak" else pl.Float64
             df = df.with_columns(pl.lit(None).cast(dtype).alias(col))
 
+    # Join graph features (backward asof join on ticker, date)
+    graph_features_dir = fundamentals_dir.parent / "graph" / "features"
+    if graph_features_dir.exists():
+        df = join_graph_features(df, graph_features_dir)
+    else:
+        for col in GRAPH_FEATURE_COLS:
+            df = df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
+
     return (
         df.select(["ticker", "date"] + FEATURE_COLS + ["label_return_1y"])
         .sort(["date", "ticker"])
@@ -181,6 +208,98 @@ def _compute_medians(X: np.ndarray) -> dict[str, float]:
         v = np.nanmedian(X[:, i])
         result[name] = 0.0 if np.isnan(v) else float(v)
     return result
+
+
+# ── Per-layer training ────────────────────────────────────────────────────────
+
+def train_single_layer(df: pl.DataFrame, artifacts_dir: Path) -> None:
+    """Fit the ensemble on df and save all artifacts to artifacts_dir.
+
+    df must have columns: ticker, date, FEATURE_COLS..., label_return_1y.
+    """
+    if len(df) < 50:
+        _LOG.warning("Only %d rows — skipping layer (too few samples)", len(df))
+        return
+
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    X = df.select(FEATURE_COLS).to_numpy().astype(float)
+    y = df["label_return_1y"].to_numpy().astype(float)
+
+    medians = _compute_medians(X)
+    X_imp = _impute(X, medians)
+    scaler = StandardScaler()
+    X_sc = scaler.fit_transform(X_imp)
+    X_df = pd.DataFrame(X_imp, columns=FEATURE_COLS)
+
+    lgbm_q10 = lgb.LGBMRegressor(
+        objective="quantile", alpha=0.1, n_estimators=400, learning_rate=0.03,
+        num_leaves=31, min_child_samples=20, random_state=42, verbose=-1,
+    )
+    lgbm_q50 = lgb.LGBMRegressor(
+        objective="quantile", alpha=0.5, n_estimators=400, learning_rate=0.03,
+        num_leaves=31, min_child_samples=20, random_state=42, verbose=-1,
+    )
+    lgbm_q90 = lgb.LGBMRegressor(
+        objective="quantile", alpha=0.9, n_estimators=400, learning_rate=0.03,
+        num_leaves=31, min_child_samples=20, random_state=42, verbose=-1,
+    )
+    rf = RandomForestRegressor(n_estimators=300, max_depth=6, random_state=42, n_jobs=-1)
+    ridge = Ridge(alpha=1.0)
+
+    lgbm_q10.fit(X_df, y)
+    lgbm_q50.fit(X_df, y)
+    lgbm_q90.fit(X_df, y)
+    rf.fit(X_imp, y)
+    ridge.fit(X_sc, y)
+
+    preds = np.column_stack([
+        lgbm_q50.predict(X_df),
+        rf.predict(X_imp),
+        ridge.predict(X_sc),
+    ])
+    weights, _ = nnls(preds, y)
+    total = weights.sum()
+    weights = weights / total if total > 1e-9 else np.array([0.5, 0.5, 0.0])
+
+    def _pkl(obj: object, name: str) -> None:
+        with open(artifacts_dir / name, "wb") as f:
+            pickle.dump(obj, f)
+
+    _pkl(lgbm_q10, "lgbm_q10.pkl")
+    _pkl(lgbm_q50, "lgbm_q50.pkl")
+    _pkl(lgbm_q90, "lgbm_q90.pkl")
+    _pkl(rf, "rf_model.pkl")
+    _pkl(ridge, "ridge_model.pkl")
+    _pkl(scaler, "feature_scaler.pkl")
+
+    (artifacts_dir / "imputation_medians.json").write_text(json.dumps(medians))
+    (artifacts_dir / "feature_names.json").write_text(json.dumps(FEATURE_COLS))
+    (artifacts_dir / "ensemble_weights.json").write_text(
+        json.dumps({"lgbm": float(weights[0]), "rf": float(weights[1]), "ridge": float(weights[2])})
+    )
+    _LOG.info(
+        "[%s] Trained on %d rows. Weights: lgbm=%.3f rf=%.3f ridge=%.3f",
+        artifacts_dir.name, len(df), *weights,
+    )
+
+
+def train_all_layers(
+    ohlcv_dir: Path,
+    fundamentals_dir: Path,
+    artifacts_dir: Path,
+) -> None:
+    """Train one ensemble per supply chain layer and save artifacts."""
+    for layer in all_layers():
+        layer_id = LAYER_IDS[layer]
+        layer_dir = artifacts_dir / f"layer_{layer_id:02d}_{layer}"
+        _LOG.info("Training layer %02d: %s", layer_id, layer)
+
+        df = build_training_dataset(ohlcv_dir, fundamentals_dir, layer=layer)
+        if df.is_empty():
+            _LOG.warning("No data for layer %s — skipping", layer)
+            continue
+
+        train_single_layer(df, layer_dir)
 
 
 # ── Main training entry point ─────────────────────────────────────────────────
@@ -334,7 +453,14 @@ def train(
 
 
 if __name__ == "__main__":
-    from dotenv import load_dotenv
-    load_dotenv()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-    train()
+    project_root = Path(__file__).parent.parent
+    ohlcv_dir        = project_root / "data" / "raw" / "financials" / "ohlcv"
+    fundamentals_dir = project_root / "data" / "raw" / "financials" / "fundamentals"
+    artifacts_dir    = project_root / "models" / "artifacts"
+
+    _LOG.info("Training per-layer ensembles for 10 supply chain layers...")
+    train_all_layers(ohlcv_dir, fundamentals_dir, artifacts_dir)
+    _LOG.info("[Train] All layer artifacts → %s", artifacts_dir)
+    print(f"[Train] Artifacts → {artifacts_dir}")
