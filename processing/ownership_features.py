@@ -76,6 +76,11 @@ def compute_ownership_features(
         _LOG.warning("No raw 13F parquets found in %s", raw_dir)
         return pl.DataFrame()
 
+    if shares_map is None and ohlcv_dir is None:
+        raise ValueError(
+            "Either shares_map or ohlcv_dir must be provided to compute inst_ownership_pct"
+        )
+
     raw = pl.concat([pl.read_parquet(p) for p in parquets])
 
     if shares_map is None:
