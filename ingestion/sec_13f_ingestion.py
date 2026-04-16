@@ -64,7 +64,8 @@ def parse_holdings_xml(xml_str: str, cusip_map: dict[str, str]) -> list[dict]:
 
     try:
         root = ET.fromstring(_strip_ns(xml_str))
-    except ET.ParseError:
+    except ET.ParseError as exc:
+        _LOG.debug("Failed to parse holdings XML: %s", exc)
         return []
 
     records = []
@@ -159,6 +160,10 @@ def rank_filers_by_position_count(index_df: pl.DataFrame, top_n: int = 500) -> l
     Proxy for AUM: lower CIK integer value = older EDGAR registrant = typically
     a larger, more established institution (Vanguard=102909, Fidelity=315066).
     Returns list of CIK strings (zero-padded to 10 digits), sorted ascending by CIK int.
+
+    Note: The EDGAR full-index does not include AUM or position counts per filer.
+    CIK age is used as a best-available heuristic. Vanguard=102909, Fidelity=315066.
+    Large institutions registered after ~2010 may be ranked lower than their AUM warrants.
     """
     sorted_df = index_df.with_columns(
         pl.col("cik").cast(pl.UInt64).alias("cik_int")
