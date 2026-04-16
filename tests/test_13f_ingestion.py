@@ -20,3 +20,64 @@ def test_cusip_map_exists_and_covers_major_tickers():
         )
     # Must cover most of our watchlist (some foreign tickers may be absent)
     assert len(cusip_map) >= 60, f"Expected ≥60 entries, got {len(cusip_map)}"
+
+
+def test_parse_holdings_xml_filters_cusip_and_type():
+    """parse_holdings_xml returns only SH-type rows for CUSIPs in the map."""
+    from ingestion.sec_13f_ingestion import parse_holdings_xml
+
+    xml_str = """<?xml version="1.0"?>
+<informationTable xmlns="http://www.sec.gov/cgi-bin/browse-edgar">
+  <infoTable>
+    <nameOfIssuer>NVIDIA CORP</nameOfIssuer>
+    <cusip>67066G104</cusip>
+    <value>5000000</value>
+    <shrsOrPrnAmt><sshPrnamt>1000000</sshPrnamt><sshPrnamtType>SH</sshPrnamtType></shrsOrPrnAmt>
+  </infoTable>
+  <infoTable>
+    <nameOfIssuer>SOME BOND</nameOfIssuer>
+    <cusip>67066G104</cusip>
+    <value>1000</value>
+    <shrsOrPrnAmt><sshPrnamt>500</sshPrnamt><sshPrnamtType>PRN</sshPrnamtType></shrsOrPrnAmt>
+  </infoTable>
+  <infoTable>
+    <nameOfIssuer>NOT IN MAP</nameOfIssuer>
+    <cusip>999999999</cusip>
+    <value>9999</value>
+    <shrsOrPrnAmt><sshPrnamt>100</sshPrnamt><sshPrnamtType>SH</sshPrnamtType></shrsOrPrnAmt>
+  </infoTable>
+</informationTable>"""
+
+    cusip_map = {"NVDA": "67066G104"}
+    result = parse_holdings_xml(xml_str, cusip_map)
+
+    assert len(result) == 1, f"Expected 1 row (SH type, in map), got {len(result)}"
+    assert result[0]["ticker"] == "NVDA"
+    assert result[0]["shares_held"] == 1_000_000
+    assert result[0]["value_usd_thousands"] == 5_000_000
+
+
+def test_parse_holdings_xml_returns_empty_on_bad_xml():
+    from ingestion.sec_13f_ingestion import parse_holdings_xml
+    result = parse_holdings_xml("NOT XML AT ALL <<<>>>", {"NVDA": "67066G104"})
+    assert result == []
+
+
+def test_parse_quarter_index_filters_13f_hr():
+    """fetch_quarter_index parses pipe-separated lines, returns only 13F-HR rows."""
+    from ingestion.sec_13f_ingestion import _parse_index_content
+
+    content = (
+        "Company Name|Form Type|CIK|Date Filed|Filename\n"
+        "----------------------------------------\n"
+        "VANGUARD GROUP INC|13F-HR|0000102909|2024-02-14|"
+        "edgar/data/102909/0000102909-24-000010-index.htm\n"
+        "SOME OTHER CO|10-K|0000012345|2024-01-15|"
+        "edgar/data/12345/0000012345-24-000001-index.htm\n"
+        "BLACKROCK INC|13F-HR|0001086364|2024-02-13|"
+        "edgar/data/1086364/0001086364-24-000005-index.htm\n"
+    )
+    df = _parse_index_content(content)
+    assert len(df) == 2
+    assert set(df["cik"].to_list()) == {"0000102909", "0001086364"}
+    assert all(f.endswith("-index.htm") for f in df["filename"].to_list())
