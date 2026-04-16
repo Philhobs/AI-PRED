@@ -175,6 +175,8 @@ def rank_filers_by_position_count(index_df: pl.DataFrame, top_n: int = 500) -> l
 
 def _quarter_end_date(year: int, quarter: int) -> str:
     """Return ISO quarter-end date string for a given year/quarter."""
+    if not 1 <= quarter <= 4:
+        raise ValueError(f"quarter must be 1-4, got {quarter!r}")
     ends = {1: f"{year}-03-31", 2: f"{year}-06-30", 3: f"{year}-09-30", 4: f"{year}-12-31"}
     return ends[quarter]
 
@@ -186,6 +188,7 @@ def _fetch_filing_index_html(filename: str) -> str | None:
         resp = requests.get(url, headers=_HEADERS, timeout=30)
         time.sleep(_SLEEP)
         if resp.status_code != 200:
+            _LOG.debug("[13F] Filing index returned %s for %s", resp.status_code, url)
             return None
         return resp.text
     except requests.RequestException:
