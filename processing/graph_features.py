@@ -183,13 +183,20 @@ def compute_graph_features(
                 "graph_partner_momentum_30d": _compute_partner_momentum_30d(
                     graph, ticker, ohlcv, row_date
                 ),
-                "graph_deal_count_90d": _compute_deal_count_90d(
+                "graph_deal_count_90d": float(_compute_deal_count_90d(
                     graph, ticker, deals, row_date
-                ),
+                )),
                 "graph_hops_to_hyperscaler": hop_distances.get(ticker, 0.0),
             })
 
-    result = pl.DataFrame(rows).with_columns(pl.col("date").cast(pl.Date))
+    _SCHEMA = {
+        "ticker": pl.Utf8,
+        "date": pl.Date,
+        "graph_partner_momentum_30d": pl.Float64,
+        "graph_deal_count_90d": pl.Float64,
+        "graph_hops_to_hyperscaler": pl.Float64,
+    }
+    result = pl.DataFrame(rows, schema=_SCHEMA)
     _LOG.info(
         "Computed graph features: %d rows for %d tickers",
         len(result), result["ticker"].n_unique(),

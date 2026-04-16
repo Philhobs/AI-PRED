@@ -6,14 +6,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import yfinance as yf
 
-TICKERS = [
-    "MSFT", "AMZN", "GOOGL", "META",           # Hyperscalers
-    "NVDA", "AMD", "AVGO", "MRVL", "TSM",      # AI chips
-    "ASML", "AMAT", "LRCX", "KLAC",            # Foundry equipment
-    "VRT", "SMCI", "DELL", "HPE",              # AI infrastructure
-    "EQIX", "DLR", "AMT",                      # Data center REITs
-    "CEG", "VST", "NRG", "TLN",               # Power / nuclear
-]
+from ingestion.ticker_registry import TICKERS
 
 SCHEMA = pa.schema([
     pa.field("ticker", pa.string()),
