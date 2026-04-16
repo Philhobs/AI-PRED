@@ -13,3 +13,4 @@ data/models/
 *.parquet
 *.duckdb
 models/artifacts/*.pkl
+models/artifacts/**/*.pkl
