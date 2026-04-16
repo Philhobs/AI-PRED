@@ -337,6 +337,8 @@ def build_13f_history(
     import datetime as dt
 
     cusip_map: dict[str, str] = json.loads(cusip_map_path.read_text())
+    if not cusip_map:
+        raise ValueError(f"CUSIP map at {cusip_map_path} is empty — run build_cusip_map.py first")
     today = dt.date.today()
     if end_year is None:
         end_year = today.year
@@ -357,8 +359,8 @@ def build_13f_history(
             _LOG.info("[13F] Ingesting %sQ%s ...", year, quarter)
             try:
                 ingest_quarter(year, quarter, cusip_map, output_dir, top_n=top_n)
-            except Exception as exc:
-                _LOG.warning("[13F] %sQ%s failed: %s — continuing", year, quarter, exc)
+            except Exception:
+                _LOG.warning("[13F] %sQ%s failed — continuing", year, quarter, exc_info=True)
 
 
 if __name__ == "__main__":
