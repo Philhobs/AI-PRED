@@ -111,7 +111,7 @@ _STATIC_CUSIP_MAP: dict[str, str] = {
     # Layer 9 — Grid / Construction / Electrical Contracting
     "PWR":   "74762E102",  # Quanta Services
     "MTZ":   "576323109",  # MasTec Inc
-    "EME":   "29084q100",  # EMCOR Group  (lowercase q — stored as-filed)
+    "EME":   "29084Q100",  # EMCOR Group
     "MYR":   "55405W104",  # MYR Group
     "IESC":  "44951W106",  # IES Holdings
     "AGX":   "04010L103",  # Argan Inc
