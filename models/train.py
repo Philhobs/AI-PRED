@@ -33,6 +33,7 @@ from processing.sentiment_features import join_sentiment_features
 from processing.short_interest_features import join_short_interest_features
 from ingestion.ticker_registry import LAYER_IDS, tickers_in_layer, layers as all_layers
 from processing.graph_features import join_graph_features
+from processing.ownership_features import join_ownership_features
 
 _LOG = logging.getLogger(__name__)
 
@@ -76,10 +77,18 @@ GRAPH_FEATURE_COLS = [
     "graph_deal_count_90d",
     "graph_hops_to_hyperscaler",
 ]
+OWNERSHIP_FEATURE_COLS = [
+    "inst_ownership_pct",
+    "inst_net_shares_qoq",
+    "inst_holder_count",
+    "inst_concentration_top10",
+    "inst_momentum_2q",
+]
 FEATURE_COLS = (
     PRICE_FEATURE_COLS + FUND_FEATURE_COLS + INSIDER_FEATURE_COLS
     + SENTIMENT_FEATURE_COLS + SHORT_INTEREST_FEATURE_COLS
-    + EARNINGS_FEATURE_COLS + GRAPH_FEATURE_COLS  # 34 features total
+    + EARNINGS_FEATURE_COLS + GRAPH_FEATURE_COLS
+    + OWNERSHIP_FEATURE_COLS  # 34 → 39 features total
 )
 
 
@@ -181,6 +190,21 @@ def build_training_dataset(
     else:
         for col in GRAPH_FEATURE_COLS:
             df = df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
+
+    # Join 13F institutional ownership features (backward asof join on ticker, date)
+    ownership_features_dir = fundamentals_dir.parent / "13f_holdings" / "features"
+    if ownership_features_dir.exists():
+        df = join_ownership_features(df, ownership_features_dir)
+    else:
+        _LOG.warning(
+            "Ownership features not found at %s — columns will be null. "
+            "Run: python ingestion/sec_13f_ingestion.py --bootstrap "
+            "then python processing/ownership_features.py",
+            ownership_features_dir,
+        )
+        for col in OWNERSHIP_FEATURE_COLS:
+            dtype = pl.Int32 if col == "inst_holder_count" else pl.Float64
+            df = df.with_columns(pl.lit(None).cast(dtype).alias(col))
 
     return (
         df.select(["ticker", "date"] + FEATURE_COLS + ["label_return_1y"])

@@ -24,11 +24,13 @@ from ingestion.ticker_registry import (
 from models.train import (
     FEATURE_COLS, INSIDER_FEATURE_COLS, SENTIMENT_FEATURE_COLS,
     SHORT_INTEREST_FEATURE_COLS, EARNINGS_FEATURE_COLS, GRAPH_FEATURE_COLS,
+    OWNERSHIP_FEATURE_COLS,
 )
 from processing.earnings_features import join_earnings_features
 from processing.fundamental_features import join_fundamentals
 from processing.graph_features import join_graph_features
 from processing.insider_features import join_insider_features
+from processing.ownership_features import join_ownership_features
 from processing.price_features import build_price_features
 from processing.sentiment_features import join_sentiment_features
 from processing.short_interest_features import join_short_interest_features
@@ -52,7 +54,7 @@ def _build_feature_df(
     date_str: str,
     data_dir: Path,
 ) -> pl.DataFrame:
-    """Build the 34-feature DataFrame for all tickers on date_str."""
+    """Build the 39-feature DataFrame for all tickers on date_str."""
     ohlcv_dir        = data_dir / "financials" / "ohlcv"
     fundamentals_dir = data_dir / "financials" / "fundamentals"
 
@@ -100,6 +102,14 @@ def _build_feature_df(
     else:
         for col in GRAPH_FEATURE_COLS:
             df = df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
+
+    ownership_features_dir = data_dir / "financials" / "13f_holdings" / "features"
+    if ownership_features_dir.exists():
+        df = join_ownership_features(df, ownership_features_dir)
+    else:
+        for col in OWNERSHIP_FEATURE_COLS:
+            dtype = pl.Int32 if col == "inst_holder_count" else pl.Float64
+            df = df.with_columns(pl.lit(None).cast(dtype).alias(col))
 
     return df
 
