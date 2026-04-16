@@ -317,3 +317,87 @@ def ingest_quarter(
 
     _LOG.info("[13F] %s complete: %d total rows", quarter_str, total_rows)
     return total_rows
+
+
+# ── History bootstrap ─────────────────────────────────────────────────────────
+
+def build_13f_history(
+    cusip_map_path: Path,
+    output_dir: Path,
+    start_year: int = 2013,
+    end_year: int | None = None,
+    top_n: int = 500,
+) -> None:
+    """
+    Bootstrap full 13F history from start_year-Q1 to present.
+
+    Idempotent: skips quarters where *.parquet files already exist in the output dir.
+    output_dir: path to the 13f_holdings/raw directory.
+    """
+    import datetime as dt
+
+    cusip_map: dict[str, str] = json.loads(cusip_map_path.read_text())
+    today = dt.date.today()
+    if end_year is None:
+        end_year = today.year
+
+    for year in range(start_year, end_year + 1):
+        for quarter in range(1, 5):
+            # Skip future quarters
+            quarter_end_month = quarter * 3
+            if year == today.year and quarter_end_month > today.month:
+                break
+
+            quarter_dir = output_dir / f"{year}Q{quarter}"
+            existing = list(quarter_dir.glob("*.parquet")) if quarter_dir.exists() else []
+            if existing:
+                _LOG.info("[13F] %sQ%s: %d files exist — skip", year, quarter, len(existing))
+                continue
+
+            _LOG.info("[13F] Ingesting %sQ%s ...", year, quarter)
+            try:
+                ingest_quarter(year, quarter, cusip_map, output_dir, top_n=top_n)
+            except Exception as exc:
+                _LOG.warning("[13F] %sQ%s failed: %s — continuing", year, quarter, exc)
+
+
+if __name__ == "__main__":
+    import argparse
+    import datetime as dt
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+    parser = argparse.ArgumentParser(description="Download SEC EDGAR 13F-HR institutional holdings.")
+    parser.add_argument(
+        "--bootstrap",
+        action="store_true",
+        help="Download full history from 2013-Q1. Omit for incremental (current + prior quarter).",
+    )
+    parser.add_argument("--top-n", type=int, default=500, help="Top N filers per quarter (default 500).")
+    args = parser.parse_args()
+
+    project_root   = Path(__file__).parent.parent
+    cusip_map_path = project_root / "data" / "raw" / "financials" / "cusip_map.json"
+    output_dir     = project_root / "data" / "raw" / "financials" / "13f_holdings" / "raw"
+
+    if not cusip_map_path.exists():
+        raise FileNotFoundError(
+            f"CUSIP map not found at {cusip_map_path}. Run: python ingestion/build_cusip_map.py"
+        )
+
+    if args.bootstrap:
+        build_13f_history(cusip_map_path, output_dir, start_year=2013, top_n=args.top_n)
+    else:
+        # Incremental: current quarter and prior quarter
+        cusip_map: dict[str, str] = json.loads(cusip_map_path.read_text())
+        today = dt.date.today()
+        current_q = (today.month - 1) // 3 + 1
+        pairs = [(today.year, current_q)]
+        if current_q == 1:
+            pairs.append((today.year - 1, 4))
+        else:
+            pairs.append((today.year, current_q - 1))
+        for year, q in pairs:
+            _LOG.info("[13F] Incremental: %sQ%s", year, q)
+            ingest_quarter(year, q, cusip_map, output_dir, top_n=args.top_n)
+
+    _LOG.info("[13F] Done.")

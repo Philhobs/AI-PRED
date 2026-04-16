@@ -147,3 +147,31 @@ def test_ingest_quarter_writes_parquet(tmp_path):
     assert "shares_held" in df.columns
     assert df["ticker"][0] == "NVDA"
     assert df["shares_held"][0] == 5_000_000
+
+
+def test_build_13f_history_skips_existing_quarters(tmp_path):
+    """build_13f_history is idempotent — skips quarters where .parquet files exist."""
+    from ingestion.sec_13f_ingestion import build_13f_history
+
+    # Pre-create a quarter directory WITH a parquet file → should be skipped
+    q1_dir = tmp_path / "2024Q1"
+    q1_dir.mkdir()
+    (q1_dir / "fake.parquet").touch()
+
+    cusip_map_path = tmp_path / "cusip_map.json"
+    cusip_map_path.write_text('{"NVDA": "67066G104"}')
+
+    call_count = []
+
+    def mock_ingest_quarter(year, quarter, cusip_map, output_dir, top_n):
+        call_count.append((year, quarter))
+        return 0
+
+    with patch("ingestion.sec_13f_ingestion.ingest_quarter", side_effect=mock_ingest_quarter):
+        # Run for 2024 only (4 quarters). Q1 has a parquet → skip. Q2-Q4 are future or empty.
+        build_13f_history(cusip_map_path, tmp_path, start_year=2024, end_year=2024)
+
+    # 2024Q1 has .parquet → skipped. Only Q2, Q3, Q4 (past quarters as of today 2026-04-16) called.
+    # Today is 2026-04-16 so all of 2024 is in the past → Q2, Q3, Q4 called (3 quarters).
+    assert (2024, 1) not in call_count, "2024Q1 has parquet, should be skipped"
+    assert len(call_count) == 3, f"Expected 3 calls (Q2/Q3/Q4), got {len(call_count)}: {call_count}"
