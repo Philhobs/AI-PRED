@@ -169,3 +169,148 @@ def rank_filers_by_position_count(index_df: pl.DataFrame, top_n: int = 500) -> l
         pl.col("cik").cast(pl.UInt64).alias("cik_int")
     ).sort("cik_int")
     return sorted_df["cik"].head(top_n).to_list()
+
+
+# ── Filing XML fetcher ────────────────────────────────────────────────────────
+
+def _quarter_end_date(year: int, quarter: int) -> str:
+    """Return ISO quarter-end date string for a given year/quarter."""
+    ends = {1: f"{year}-03-31", 2: f"{year}-06-30", 3: f"{year}-09-30", 4: f"{year}-12-31"}
+    return ends[quarter]
+
+
+def _fetch_filing_index_html(filename: str) -> str | None:
+    """Fetch the HTML filing index page for a 13F-HR submission."""
+    url = f"https://www.sec.gov/{filename}"
+    try:
+        resp = requests.get(url, headers=_HEADERS, timeout=30)
+        time.sleep(_SLEEP)
+        if resp.status_code != 200:
+            return None
+        return resp.text
+    except requests.RequestException:
+        return None
+
+
+def _find_xml_url(index_html: str, cik: str, filename: str) -> str | None:
+    """
+    Extract the information table XML URL from a 13F-HR filing index HTML.
+
+    Looks for .xml links in the HTML. Returns the first XML URL found.
+    """
+    cik_num = str(int(cik))  # strip leading zeros for URL path
+    accession_nodash = filename.split("/")[-1].replace("-index.htm", "").replace("-", "")
+    base = (
+        f"https://www.sec.gov/Archives/edgar/data/{cik_num}/{accession_nodash}"
+    )
+
+    xml_paths = re.findall(r'href="([^"]*\.xml)"', index_html, re.IGNORECASE)
+    for path in xml_paths:
+        if path.startswith("http"):
+            url = path
+        elif path.startswith("/"):
+            url = f"https://www.sec.gov{path}"
+        else:
+            url = f"{base}/{path}"
+        return url  # return first XML link found
+
+    return None
+
+
+def fetch_filing_xml(cik: str, filename: str) -> str | None:
+    """
+    Fetch the 13F-HR information table XML for one filer filing.
+
+    Returns XML string if successful and contains infoTable elements, None otherwise.
+    """
+    html = _fetch_filing_index_html(filename)
+    if html is None:
+        return None
+
+    xml_url = _find_xml_url(html, cik, filename)
+    if xml_url is None:
+        return None
+
+    try:
+        resp = requests.get(xml_url, headers=_HEADERS, timeout=30)
+        time.sleep(_SLEEP)
+        if resp.status_code != 200:
+            return None
+        xml = resp.text
+        if "infoTable" not in xml and "informationTable" not in xml:
+            return None
+        return xml
+    except requests.RequestException:
+        return None
+
+
+# ── Quarter orchestration ─────────────────────────────────────────────────────
+
+def ingest_quarter(
+    year: int,
+    quarter: int,
+    cusip_map: dict[str, str],
+    output_dir: Path,
+    top_n: int = 500,
+) -> int:
+    """
+    Download and parse 13F-HR filings for one quarter, save per-filer Parquets.
+
+    Returns total number of rows written across all filers.
+    Output: output_dir/<YYYYQQ>/<CIK>.parquet (only rows matching cusip_map).
+    Skips filers where the output file already exists (idempotent).
+    """
+    import datetime as dt
+
+    quarter_str = f"{year}Q{quarter}"
+    period_end  = _quarter_end_date(year, quarter)
+    out_dir     = output_dir / quarter_str
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    index_df = fetch_quarter_index(year, quarter)
+    if index_df.is_empty():
+        _LOG.warning("[13F] No 13F-HR filers found for %s", quarter_str)
+        return 0
+
+    top_ciks = rank_filers_by_position_count(index_df, top_n=top_n)
+    filer_map = {
+        row["cik"]: row["filename"]
+        for row in index_df.iter_rows(named=True)
+        if row["cik"] in top_ciks
+    }
+
+    total_rows = 0
+    for i, cik in enumerate(top_ciks):
+        filename = filer_map.get(cik)
+        if filename is None:
+            continue
+
+        out_path = out_dir / f"{cik}.parquet"
+        if out_path.exists():
+            _LOG.debug("[13F] %s/%s already exists — skip", quarter_str, cik)
+            continue
+
+        xml = fetch_filing_xml(cik, filename)
+        if xml is None:
+            _LOG.debug("[13F] %s/%s: no XML found", quarter_str, cik)
+            continue
+
+        rows = parse_holdings_xml(xml, cusip_map)
+        if not rows:
+            continue
+
+        for row in rows:
+            row["cik"]        = cik
+            row["quarter"]    = quarter_str
+            row["period_end"] = dt.date.fromisoformat(period_end)
+
+        table = pa.Table.from_pylist(rows, schema=_RAW_SCHEMA)
+        pq.write_table(table, str(out_path), compression="snappy")
+        total_rows += len(rows)
+        _LOG.info("[13F] %s/%s: %d watchlist rows", quarter_str, cik, len(rows))
+
+        if i % 50 == 0 and i > 0:
+            _LOG.info("[13F] %s: %d/%d filers processed, %d rows", quarter_str, i, len(top_ciks), total_rows)
+
+    _LOG.info("[13F] %s complete: %d total rows", quarter_str, total_rows)
+    return total_rows

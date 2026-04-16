@@ -81,3 +81,69 @@ def test_parse_quarter_index_filters_13f_hr():
     assert len(df) == 2
     assert set(df["cik"].to_list()) == {"0000102909", "0001086364"}
     assert all(f.endswith("-index.htm") for f in df["filename"].to_list())
+
+
+import gzip
+from unittest.mock import patch, MagicMock
+import polars as pl
+
+
+def test_ingest_quarter_writes_parquet(tmp_path):
+    """ingest_quarter saves per-filer Parquet with correct schema."""
+    from ingestion.sec_13f_ingestion import ingest_quarter
+
+    # Synthetic quarter index content (one 13F-HR filer)
+    index_gz_content = gzip.compress(
+        b"Company Name|Form Type|CIK|Date Filed|Filename\n"
+        b"---\n"
+        b"VANGUARD GROUP|13F-HR|0000102909|2024-02-14|"
+        b"edgar/data/102909/0000102909-24-000001-index.htm\n"
+    )
+
+    # Synthetic filing index HTML (points to infotable.xml)
+    index_html = b"""<html><body>
+<table><tr><td><a href="infotable.xml">infotable.xml</a></td></tr></table>
+</body></html>"""
+
+    # Synthetic XML with one NVDA holding
+    xml_content = b"""<?xml version="1.0"?>
+<informationTable>
+  <infoTable>
+    <cusip>67066G104</cusip>
+    <value>9999999</value>
+    <shrsOrPrnAmt><sshPrnamt>5000000</sshPrnamt><sshPrnamtType>SH</sshPrnamtType></shrsOrPrnAmt>
+  </infoTable>
+</informationTable>"""
+
+    cusip_map = {"NVDA": "67066G104"}
+
+    def mock_get(url, **kwargs):
+        m = MagicMock()
+        m.raise_for_status = MagicMock()
+        if "company.gz" in url:
+            m.content = index_gz_content
+            m.status_code = 200
+        elif "index.htm" in url:
+            m.content = index_html
+            m.text = index_html.decode()
+            m.status_code = 200
+        elif "infotable.xml" in url or url.endswith(".xml"):
+            m.content = xml_content
+            m.text = xml_content.decode()
+            m.status_code = 200
+        else:
+            m.status_code = 404
+        return m
+
+    with patch("ingestion.sec_13f_ingestion.requests.get", side_effect=mock_get):
+        with patch("ingestion.sec_13f_ingestion.time.sleep"):  # skip actual sleep
+            rows = ingest_quarter(2024, 1, cusip_map, tmp_path, top_n=1)
+
+    assert rows > 0, "Expected at least one row written"
+    parquets = list(tmp_path.glob("2024Q1/*.parquet"))
+    assert len(parquets) == 1
+    df = pl.read_parquet(parquets[0])
+    assert "ticker" in df.columns
+    assert "shares_held" in df.columns
+    assert df["ticker"][0] == "NVDA"
+    assert df["shares_held"][0] == 5_000_000
