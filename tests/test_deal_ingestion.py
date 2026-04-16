@@ -35,7 +35,7 @@ def test_parse_8k_assigns_deal_type():
 def test_load_manual_deals():
     from ingestion.deal_ingestion import _load_manual_deals
     from pathlib import Path
-    path = Path("data/manual/deals_override.csv")
+    path = Path(__file__).parent.parent / "data" / "manual" / "deals_override.csv"
     df = _load_manual_deals(path)
     assert len(df) >= 20
     assert "party_a" in df.columns

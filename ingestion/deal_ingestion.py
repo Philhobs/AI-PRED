@@ -18,17 +18,15 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import polars as pl
-import requests
 
 from ingestion.ticker_registry import TICKER_LAYERS, TICKERS
 
 _LOG = logging.getLogger(__name__)
-_HEADERS = {"User-Agent": "ai-infra-predictor research@example.com"}
 
 # Maps deal keywords found in 8-K text to deal_type values
 _DEAL_TYPE_KEYWORDS: dict[str, list[str]] = {
     "power_purchase_agreement": [
-        "power purchase agreement", "ppa", "offtake agreement",
+        "power purchase agreement", "offtake agreement",
         "energy purchase agreement", "renewable energy agreement",
     ],
     "supply_agreement": [
@@ -59,7 +57,7 @@ _NAME_TO_TICKER: dict[str, str] = {
         "MSFT": ["microsoft", "microsoft corporation"],
         "AMZN": ["amazon", "amazon web services", "aws"],
         "GOOGL": ["google", "alphabet"],
-        "META": ["meta", "meta platforms"],
+        "META": ["meta platforms"],
         "ORCL": ["oracle", "oracle corporation"],
         "IBM": ["ibm", "international business machines"],
         "NVDA": ["nvidia", "nvidia corporation"],
@@ -118,8 +116,11 @@ def _parse_8k_for_deals(
     """
     rows: list[dict] = []
     text_lower = text.lower()
+    seen_counterparties: set[str] = set()
 
     for name, counterparty in _NAME_TO_TICKER.items():
+        if counterparty in seen_counterparties:
+            continue
         if counterparty == filer_ticker:
             continue
         if counterparty not in watchlist:
@@ -143,6 +144,7 @@ def _parse_8k_for_deals(
             "source": "8-K",
             "confidence": 0.7,
         })
+        seen_counterparties.add(counterparty)
 
     return rows
 
@@ -182,39 +184,40 @@ def _build_edges(deals: pl.DataFrame, as_of: date) -> pl.DataFrame:
         (
             (pl.lit(as_of_days) - pl.col("date").cast(pl.Int32)) / 365.25
         ).alias("years_ago"),
+        # Canonical key: sort party_a < party_b so (A,B) and (B,A) fall into same bucket
+        pl.when(pl.col("party_a") < pl.col("party_b"))
+          .then(pl.col("party_a")).otherwise(pl.col("party_b")).alias("key_lo"),
+        pl.when(pl.col("party_a") < pl.col("party_b"))
+          .then(pl.col("party_b")).otherwise(pl.col("party_a")).alias("key_hi"),
     ]).with_columns([
         (pl.col("confidence") * (0.5 ** pl.col("years_ago"))).alias("w"),
     ])
 
-    edges = (
+    agg = (
         rows_with_weight
-        .group_by(["party_a", "party_b"])
+        .group_by(["key_lo", "key_hi"])
         .agg([
             pl.col("w").sum().alias("edge_weight"),
-            pl.col("party_a").count().alias("deal_count").cast(pl.Int32),
+            pl.col("key_lo").count().alias("deal_count").cast(pl.Int32),
             pl.col("date").max().alias("last_deal_date"),
             pl.col("deal_type").unique().sort().str.join("|").alias("edge_types"),
         ])
-        .rename({"party_a": "ticker_from", "party_b": "ticker_to"})
     )
 
-    # Make edges bidirectional
-    reverse = edges.rename({
-        "ticker_from": "ticker_to",
-        "ticker_to": "ticker_from",
-    }).select(edges.columns)
-
-    return pl.concat([edges, reverse]).unique(["ticker_from", "ticker_to"])
+    forward = agg.rename({"key_lo": "ticker_from", "key_hi": "ticker_to"})
+    reverse = agg.rename({"key_lo": "ticker_to", "key_hi": "ticker_from"}).select(forward.columns)
+    return pl.concat([forward, reverse])
 
 
 def build_deals(
     manual_csv: Path,
-    days_back: int = 730,
+    as_of: date | None = None,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Build deals and edges DataFrames from manual CSV.
 
     Returns (deals_df, edges_df).
     """
+    as_of = as_of or date.today()
     manual_df = _load_manual_deals(manual_csv)
 
     if manual_df.is_empty():
@@ -231,7 +234,7 @@ def build_deals(
         ).alias("deal_id"),
     ])
 
-    edges = _build_edges(deals, as_of=date.today())
+    edges = _build_edges(deals, as_of=as_of)
 
     _LOG.info(
         "Built deal graph: %d deals, %d edges (%d unique pairs)",
