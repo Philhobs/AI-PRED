@@ -106,17 +106,21 @@ def _parse_index_content(content: str) -> pl.DataFrame:
     """
     Parse EDGAR full-index company.gz content (after decompression).
 
-    Format: pipe-separated lines — Company Name|Form Type|CIK|Date Filed|Filename
+    Format: fixed-width / whitespace-separated columns (NOT pipe-separated).
+    Columns (split on 2+ spaces): Company Name, Form Type, CIK, Date Filed, Filename
     Returns DataFrame with [cik, date_filed, filename] for 13F-HR rows only.
     CIK is zero-padded to 10 digits.
     """
     records = []
     for line in content.splitlines():
-        if "|" not in line:
+        # Skip header/blank/separator lines — data lines contain "13F" somewhere
+        if "13F-HR" not in line:
             continue
-        parts = line.split("|")
+        # EDGAR fixed-width index: columns are separated by 2+ spaces
+        parts = re.split(r"  +", line.strip())
         if len(parts) < 5:
             continue
+        # parts: [company_name, form_type, cik, date_filed, filename]
         form_type = parts[1].strip()
         if form_type != "13F-HR":
             continue

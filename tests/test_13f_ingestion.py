@@ -64,18 +64,16 @@ def test_parse_holdings_xml_returns_empty_on_bad_xml():
 
 
 def test_parse_quarter_index_filters_13f_hr():
-    """fetch_quarter_index parses pipe-separated lines, returns only 13F-HR rows."""
+    """fetch_quarter_index parses fixed-width/whitespace lines, returns only 13F-HR rows."""
     from ingestion.sec_13f_ingestion import _parse_index_content
 
+    # EDGAR company.gz uses fixed-width columns separated by 2+ spaces (not pipes)
     content = (
-        "Company Name|Form Type|CIK|Date Filed|Filename\n"
-        "----------------------------------------\n"
-        "VANGUARD GROUP INC|13F-HR|0000102909|2024-02-14|"
-        "edgar/data/102909/0000102909-24-000010-index.htm\n"
-        "SOME OTHER CO|10-K|0000012345|2024-01-15|"
-        "edgar/data/12345/0000012345-24-000001-index.htm\n"
-        "BLACKROCK INC|13F-HR|0001086364|2024-02-13|"
-        "edgar/data/1086364/0001086364-24-000005-index.htm\n"
+        "Company Name                                                  Form Type   CIK         Date Filed  File Name\n"
+        "---------------------------------------------------------------------------------------------------------------------------------------------\n"
+        "VANGUARD GROUP INC                                            13F-HR      0000102909  2024-02-14  edgar/data/102909/0000102909-24-000010-index.htm\n"
+        "SOME OTHER CO                                                 10-K        0000012345  2024-01-15  edgar/data/12345/0000012345-24-000001-index.htm\n"
+        "BLACKROCK INC                                                 13F-HR      0001086364  2024-02-13  edgar/data/1086364/0001086364-24-000005-index.htm\n"
     )
     df = _parse_index_content(content)
     assert len(df) == 2
@@ -93,11 +91,11 @@ def test_ingest_quarter_writes_parquet(tmp_path):
     from ingestion.sec_13f_ingestion import ingest_quarter
 
     # Synthetic quarter index content (one 13F-HR filer)
+    # EDGAR company.gz uses fixed-width/whitespace-separated columns (not pipes)
     index_gz_content = gzip.compress(
-        b"Company Name|Form Type|CIK|Date Filed|Filename\n"
-        b"---\n"
-        b"VANGUARD GROUP|13F-HR|0000102909|2024-02-14|"
-        b"edgar/data/102909/0000102909-24-000001-index.htm\n"
+        b"Company Name                                                  Form Type   CIK         Date Filed  File Name\n"
+        b"---------------------------------------------------------------------------------------------------------------------------------------------\n"
+        b"VANGUARD GROUP                                                13F-HR      0000102909  2024-02-14  edgar/data/102909/0000102909-24-000001-index.htm\n"
     )
 
     # Synthetic filing index HTML (points to infotable.xml)
