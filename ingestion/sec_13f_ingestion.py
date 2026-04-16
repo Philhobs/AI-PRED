@@ -185,9 +185,29 @@ def _quarter_end_date(year: int, quarter: int) -> str:
     return ends[quarter]
 
 
-def _fetch_filing_index_html(filename: str) -> str | None:
+def _filing_index_url(cik: str, filename: str) -> str:
+    """
+    Convert a company.gz filename entry to the EDGAR filing index HTML URL.
+
+    The company.gz index gives filenames like:
+      edgar/data/107136/0001214659-24-000442.txt
+    The filing index HTML lives at:
+      https://www.sec.gov/Archives/edgar/data/107136/000121465924000442/0001214659-24-000442-index.htm
+    """
+    cik_num = str(int(cik))  # strip leading zeros for URL path
+    # Last path component is e.g. "0001214659-24-000442.txt"
+    acc_with_ext = filename.split("/")[-1]
+    accession = acc_with_ext.replace(".txt", "").replace("-index.htm", "")
+    accession_nodash = accession.replace("-", "")
+    return (
+        f"https://www.sec.gov/Archives/edgar/data/{cik_num}"
+        f"/{accession_nodash}/{accession}-index.htm"
+    )
+
+
+def _fetch_filing_index_html(filename: str, cik: str = "") -> str | None:
     """Fetch the HTML filing index page for a 13F-HR submission."""
-    url = f"https://www.sec.gov/{filename}"
+    url = _filing_index_url(cik, filename) if cik else f"https://www.sec.gov/{filename}"
     try:
         resp = requests.get(url, headers=_HEADERS, timeout=30)
         time.sleep(_SLEEP)
@@ -201,17 +221,29 @@ def _fetch_filing_index_html(filename: str) -> str | None:
 
 def _find_xml_url(index_html: str, cik: str, filename: str) -> str | None:
     """
-    Extract the information table XML URL from a 13F-HR filing index HTML.
+    Locate the 13F-HR information table XML URL for a filing.
 
-    Looks for .xml links in the HTML. Returns the first XML URL found.
+    Strategy:
+    1. Construct the base accession directory URL from cik + filename.
+    2. Try known 13F XML filenames in priority order (infotable.xml first).
+    3. Fall back to HTML-parsed .xml links (excluding xsl-rendered variants).
+
+    The company.gz index gives filenames like:
+      edgar/data/107136/0001214659-24-000442.txt
+    The raw infotable XML lives at:
+      https://www.sec.gov/Archives/edgar/data/107136/000121465924000442/infotable.xml
     """
     cik_num = str(int(cik))  # strip leading zeros for URL path
-    accession_nodash = filename.split("/")[-1].replace("-index.htm", "").replace("-", "")
+    acc_with_ext = filename.split("/")[-1]
+    accession = acc_with_ext.replace(".txt", "").replace("-index.htm", "")
+    accession_nodash = accession.replace("-", "")
     base = (
         f"https://www.sec.gov/Archives/edgar/data/{cik_num}/{accession_nodash}"
     )
 
+    # Parse all .xml hrefs from the filing index HTML
     xml_paths = re.findall(r'href="([^"]*\.xml)"', index_html, re.IGNORECASE)
+    all_urls: list[str] = []
     for path in xml_paths:
         if path.startswith("http"):
             url = path
@@ -219,9 +251,29 @@ def _find_xml_url(index_html: str, cik: str, filename: str) -> str | None:
             url = f"https://www.sec.gov{path}"
         else:
             url = f"{base}/{path}"
-        return url  # return first XML link found
+        all_urls.append(url)
 
-    return None
+    # Priority 1: direct (non-xsl) infotable.xml URL under the accession directory
+    direct_infotable = f"{base}/infotable.xml"
+    if any(direct_infotable.lower() == u.lower() for u in all_urls):
+        return direct_infotable
+    # Also try it unconditionally — it often exists even if not linked from HTML
+    return_candidate = direct_infotable
+
+    # Priority 2: any non-xsl infotable link from HTML
+    for url in all_urls:
+        if "infotable" in url.lower() and "xsl" not in url.lower():
+            return url
+
+    # Priority 3: any xsl-variant infotable (will be HTML not XML, skip)
+    # Priority 4: any non-xsl non-primary XML from HTML
+    for url in all_urls:
+        fname = url.rsplit("/", 1)[-1].lower()
+        if "xsl" not in url.lower() and fname not in ("primary_doc.xml",):
+            return url
+
+    # Final fallback: the direct infotable.xml (attempt even if not in HTML links)
+    return return_candidate
 
 
 def fetch_filing_xml(cik: str, filename: str) -> str | None:
@@ -230,7 +282,7 @@ def fetch_filing_xml(cik: str, filename: str) -> str | None:
 
     Returns XML string if successful and contains infoTable elements, None otherwise.
     """
-    html = _fetch_filing_index_html(filename)
+    html = _fetch_filing_index_html(filename, cik=cik)
     if html is None:
         return None
 
