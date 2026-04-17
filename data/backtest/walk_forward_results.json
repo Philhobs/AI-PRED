@@ -1,19 +1,79 @@
 {
-  "train_cutoff": "2022-12-31",
-  "test_start": "2023-01-01",
-  "test_end": "2024-03-31",
-  "train_rows": 124989,
-  "test_rows": 7360,
-  "monthly_rebalance_dates": 15,
-  "ensemble_weights": {
-    "lgbm": 0.5156901970742414,
-    "rf": 0.4843098029257587,
-    "ridge": 0.0
-  },
-  "mean_ic": 0.1909,
-  "ic_std": 0.4173,
-  "ic_tstat": 1.7713,
-  "hit_rate": 0.5333,
-  "mean_spread": 0.196,
-  "feature_count": 34
+  "as_of": "2026-04-17",
+  "feature_count": 39,
+  "folds": [
+    {
+      "fold": 1,
+      "train_end": "2020-04-07",
+      "test_start": "2020-04-08",
+      "test_end": "2020-05-27",
+      "n_samples": 250,
+      "ic": 0.2706,
+      "hit_rate": 0.612,
+      "top_decile_return": 0.1882,
+      "per_layer": {
+        "compute": {
+          "ic": -0.0156,
+          "hit_rate": 0.78,
+          "n": 50
+        },
+        "cloud": {
+          "ic": 0.2761,
+          "hit_rate": 0.57,
+          "n": 200
+        }
+      }
+    },
+    {
+      "fold": 2,
+      "train_end": "2020-05-27",
+      "test_start": "2020-05-28",
+      "test_end": "2020-07-16",
+      "n_samples": 250,
+      "ic": -0.3955,
+      "hit_rate": 0.928,
+      "top_decile_return": 0.0728,
+      "per_layer": {
+        "compute": {
+          "ic": -0.5395,
+          "hit_rate": 0.98,
+          "n": 50
+        },
+        "cloud": {
+          "ic": -0.4181,
+          "hit_rate": 0.915,
+          "n": 200
+        }
+      }
+    },
+    {
+      "fold": 3,
+      "train_end": "2020-07-16",
+      "test_start": "2020-07-17",
+      "test_end": "2020-09-04",
+      "n_samples": 250,
+      "ic": 0.031,
+      "hit_rate": 0.976,
+      "top_decile_return": 0.2651,
+      "per_layer": {
+        "compute": {
+          "ic": 0.306,
+          "hit_rate": 1.0,
+          "n": 50
+        },
+        "cloud": {
+          "ic": 0.1789,
+          "hit_rate": 0.97,
+          "n": 200
+        }
+      }
+    }
+  ],
+  "summary": {
+    "mean_ic": -0.0313,
+    "mean_hit_rate": 0.8387,
+    "mean_top_decile_return": 0.1754,
+    "best_layer": "compute",
+    "worst_layer": "cloud"
+  }
 }
