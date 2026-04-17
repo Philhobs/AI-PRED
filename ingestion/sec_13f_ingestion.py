@@ -15,6 +15,7 @@ Run:
 """
 from __future__ import annotations
 
+import datetime as dt
 import gzip
 import json
 import logging
@@ -319,8 +320,6 @@ def ingest_quarter(
     Output: output_dir/<YYYYQQ>/<CIK>.parquet (only rows matching cusip_map).
     Skips filers where the output file already exists (idempotent).
     """
-    import datetime as dt
-
     quarter_str = f"{year}Q{quarter}"
     period_end  = _quarter_end_date(year, quarter)
     out_dir     = output_dir / quarter_str
@@ -332,11 +331,11 @@ def ingest_quarter(
         return 0
 
     top_ciks = rank_filers_by_position_count(index_df, top_n=top_n)
-    filer_map = {
-        row["cik"]: row["filename"]
-        for row in index_df.iter_rows(named=True)
-        if row["cik"] in top_ciks
-    }
+    # Keep first occurrence per CIK to handle rare duplicate index rows
+    filer_map: dict[str, str] = {}
+    for row in index_df.iter_rows(named=True):
+        if row["cik"] in top_ciks and row["cik"] not in filer_map:
+            filer_map[row["cik"]] = row["filename"]
 
     total_rows = 0
     for i, cik in enumerate(top_ciks):
@@ -390,8 +389,6 @@ def build_13f_history(
     Idempotent: skips quarters where *.parquet files already exist in the output dir.
     output_dir: path to the 13f_holdings/raw directory.
     """
-    import datetime as dt
-
     cusip_map: dict[str, str] = json.loads(cusip_map_path.read_text())
     if not cusip_map:
         raise ValueError(f"CUSIP map at {cusip_map_path} is empty — run build_cusip_map.py first")
@@ -421,7 +418,6 @@ def build_13f_history(
 
 if __name__ == "__main__":
     import argparse
-    import datetime as dt
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     parser = argparse.ArgumentParser(description="Download SEC EDGAR 13F-HR institutional holdings.")
