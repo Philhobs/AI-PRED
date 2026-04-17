@@ -15,7 +15,7 @@ Features:
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import duckdb
@@ -281,6 +281,7 @@ def join_sentiment_features(df: pl.DataFrame, sentiment_features_dir: Path) -> p
         right_on="feature_date",
         by="ticker",
         strategy="backward",
+        tolerance=timedelta(days=30),
     )
 
     non_null = result["sentiment_mean_7d"].drop_nulls().len()
