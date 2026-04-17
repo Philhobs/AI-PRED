@@ -11,13 +11,16 @@ Features per ticker per OHLCV date:
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import duckdb
 import polars as pl
 
 _LOG = logging.getLogger(__name__)
+
+# Maximum age of a short interest observation to propagate forward (1 trading week).
+_SI_STALE_DAYS = 7
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -217,6 +220,7 @@ def join_short_interest_features(df: pl.DataFrame, si_features_dir: Path) -> pl.
         right_on="si_date",
         by="ticker",
         strategy="backward",
+        tolerance=timedelta(days=_SI_STALE_DAYS),
     )
 
     non_null = result["short_vol_ratio_10d"].drop_nulls().len()
