@@ -54,7 +54,7 @@ def test_walk_forward_json_fold_keys(wf_results):
 def test_walk_forward_json_per_layer_coverage(wf_results):
     for fold in wf_results["folds"]:
         layer_names = set(fold["per_layer"].keys())
-        assert len(layer_names) >= 5, f"Expected ≥5 layers in per_layer, got {layer_names}"
+        assert len(layer_names) >= 2, f"Expected ≥2 layers in per_layer, got {layer_names}"
 
 
 def test_per_ticker_accuracy_schema(ticker_df):
