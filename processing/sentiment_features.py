@@ -23,6 +23,10 @@ import polars as pl
 
 _LOG = logging.getLogger(__name__)
 
+# Maximum age of a sentiment observation to be propagated forward (~1 trading month).
+# Sentiment signal degrades quickly; beyond this window, null is preferable to stale data.
+_SENTIMENT_STALE_DAYS = 30
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Scalar helpers — used directly in unit tests
@@ -281,7 +285,7 @@ def join_sentiment_features(df: pl.DataFrame, sentiment_features_dir: Path) -> p
         right_on="feature_date",
         by="ticker",
         strategy="backward",
-        tolerance=timedelta(days=30),
+        tolerance=timedelta(days=_SENTIMENT_STALE_DAYS),
     )
 
     non_null = result["sentiment_mean_7d"].drop_nulls().len()

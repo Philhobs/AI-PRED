@@ -36,9 +36,9 @@ def _make_spine(ticker: str, spine_date: date) -> pl.DataFrame:
 
 
 def test_sentiment_join_propagates_within_30d(tmp_path):
-    """A spine row 15 days after sentiment data should get the sentiment value."""
+    """A spine row 29 days after sentiment data should get the sentiment value."""
     feature_date = date(2025, 1, 1)
-    spine_date = feature_date + timedelta(days=15)
+    spine_date = feature_date + timedelta(days=29)  # near boundary, within 30-day window
     features_dir = _make_sentiment_dir(tmp_path, "NVDA", feature_date)
     spine = _make_spine("NVDA", spine_date)
     result = join_sentiment_features(spine, features_dir)
@@ -63,3 +63,14 @@ def test_sentiment_join_null_before_data_exists(tmp_path):
     spine = _make_spine("NVDA", spine_date)
     result = join_sentiment_features(spine, features_dir)
     assert result["sentiment_mean_7d"][0] is None
+
+
+def test_sentiment_join_at_exactly_30d_boundary(tmp_path):
+    """A spine row exactly 30 days after sentiment data should still get the value (inclusive boundary)."""
+    feature_date = date(2025, 1, 1)
+    spine_date = feature_date + timedelta(days=30)  # exactly at boundary
+    features_dir = _make_sentiment_dir(tmp_path, "NVDA", feature_date)
+    spine = _make_spine("NVDA", spine_date)
+    result = join_sentiment_features(spine, features_dir)
+    assert result["sentiment_mean_7d"][0] == pytest.approx(0.5), \
+        "Exactly 30 days is within tolerance (inclusive boundary)"
