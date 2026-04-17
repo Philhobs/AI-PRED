@@ -1,6 +1,5 @@
 """Tests that join_sentiment_features respects the 30-day tolerance window."""
 from __future__ import annotations
-import tempfile
 from datetime import date, timedelta
 from pathlib import Path
 

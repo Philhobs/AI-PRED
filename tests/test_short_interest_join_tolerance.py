@@ -1,6 +1,5 @@
 """Tests that join_short_interest_features respects the 7-day tolerance window."""
 from __future__ import annotations
-import tempfile
 from datetime import date, timedelta
 from pathlib import Path
 
