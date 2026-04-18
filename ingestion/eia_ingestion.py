@@ -44,6 +44,7 @@ def fetch_eia_capacity(api_key: str, months: int = 36) -> pl.DataFrame:
 
     Returns DataFrame with columns: date (date), fuel_type (str), capacity_gw (float64).
     """
+    _EMPTY = pl.DataFrame(schema={"date": pl.Date, "fuel_type": pl.Utf8, "capacity_gw": pl.Float64})
     params = {
         "api_key": api_key,
         "frequency": "monthly",
@@ -55,8 +56,12 @@ def fetch_eia_capacity(api_key: str, months: int = 36) -> pl.DataFrame:
         "length": str(months * len(_FUEL_TYPE_MAP) + 10),
     }
 
-    resp = requests.get(_EIA_URL, params=params, timeout=30)
-    resp.raise_for_status()
+    try:
+        resp = requests.get(_EIA_URL, params=params, timeout=30)
+        resp.raise_for_status()
+    except Exception as exc:
+        _LOG.warning("[EIA] Fetch failed — %s. Skipping.", exc)
+        return _EMPTY
     records = resp.json().get("response", {}).get("data", [])
 
     rows = []
@@ -89,10 +94,17 @@ def fetch_pjm_queue() -> pl.DataFrame:
     Returns DataFrame with columns:
       date (date), zone (str), queue_backlog_gw (float64), project_count (int32)
     """
+    _EMPTY = pl.DataFrame(
+        schema={"date": pl.Date, "zone": pl.Utf8, "queue_backlog_gw": pl.Float64, "project_count": pl.Int32}
+    )
     import openpyxl
 
-    resp = requests.get(_PJM_URL, timeout=60)
-    resp.raise_for_status()
+    try:
+        resp = requests.get(_PJM_URL, timeout=60)
+        resp.raise_for_status()
+    except Exception as exc:
+        _LOG.warning("[PJM] Fetch failed — %s. Skipping.", exc)
+        return _EMPTY
 
     wb = openpyxl.load_workbook(io.BytesIO(resp.content), read_only=True, data_only=True)
     ws = wb.active
