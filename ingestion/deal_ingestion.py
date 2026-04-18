@@ -104,6 +104,51 @@ def _classify_deal_type(text: str) -> str:
     return "customer_contract"  # default for unclassified material agreements
 
 
+_MW_PATTERNS = [
+    re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*-?\s*(?:GW|gigawatt)", re.IGNORECASE),
+    re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*-?\s*(?:MW|megawatt)", re.IGNORECASE),
+]
+
+
+def _extract_deal_mw(text: str) -> float | None:
+    """Extract MW capacity from 8-K deal text.
+
+    Returns MW as float (GW converted × 1000), or None if not found.
+    """
+    for i, pat in enumerate(_MW_PATTERNS):
+        m = pat.search(text)
+        if m:
+            raw = float(m.group(1).replace(",", ""))
+            # First pattern is GW — multiply by 1000
+            if i == 0:
+                return raw * 1000.0
+            return raw
+    return None
+
+
+_HYPERSCALER_KEYWORDS = {"microsoft", "amazon", "aws", "google", "alphabet", "meta", "apple"}
+_CRYPTO_KEYWORDS = {
+    "iren", "applied digital", "apld", "marathon digital", "riot platforms",
+    "core scientific", "bit digital", "bitfarms",
+}
+_UTILITY_KEYWORDS = {
+    "duke energy", "dominion", "southern company", "exelon", "entergy",
+    "nextera", "eversource", "ameren", "xcel energy", "sempra",
+}
+
+
+def _classify_buyer_type(counterparty: str) -> str:
+    """Classify counterparty as hyperscaler, crypto_miner, utility, or other."""
+    lower = counterparty.lower()
+    if any(kw in lower for kw in _HYPERSCALER_KEYWORDS):
+        return "hyperscaler"
+    if any(kw in lower for kw in _CRYPTO_KEYWORDS):
+        return "crypto_miner"
+    if any(kw in lower for kw in _UTILITY_KEYWORDS):
+        return "utility"
+    return "other"
+
+
 def _parse_8k_for_deals(
     text: str,
     filer_ticker: str,
@@ -136,14 +181,17 @@ def _parse_8k_for_deals(
             text[:200].strip(),
         )
 
-        rows.append({
+        deal_dict = {
             "party_a": filer_ticker,
             "party_b": counterparty,
             "deal_type": deal_type,
             "description": desc[:300],
             "source": "8-K",
             "confidence": 0.7,
-        })
+        }
+        deal_dict["deal_mw"] = _extract_deal_mw(text)
+        deal_dict["buyer_type"] = _classify_buyer_type(counterparty)
+        rows.append(deal_dict)
         seen_counterparties.add(counterparty)
 
     return rows
@@ -210,22 +258,112 @@ def _build_edges(deals: pl.DataFrame, as_of: date) -> pl.DataFrame:
 
 
 def build_deals(
-    manual_csv: Path,
+    manual_csv: Path | None = None,
     as_of: date | None = None,
-) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Build deals and edges DataFrames from manual CSV.
+    *,
+    filings: list[dict] | None = None,
+    manual_csv_path: Path | None = None,
+    output_path: Path | None = None,
+) -> tuple[pl.DataFrame, pl.DataFrame] | pl.DataFrame:
+    """Build deals DataFrame from manual CSV and/or 8-K filings.
 
-    Returns (deals_df, edges_df).
+    Two calling modes:
+
+    Legacy mode (returns (deals_df, edges_df)):
+        build_deals(manual_csv=Path(...), as_of=date(...))
+
+    Enriched mode (returns deals_df only):
+        build_deals(
+            filings=[{"text": ..., "date": ..., "url": ...}],
+            manual_csv_path=Path(...),
+            output_path=Path(...),
+        )
     """
+    enriched_mode = filings is not None or manual_csv_path is not None or output_path is not None
+
+    # Resolve the manual CSV path from either argument style
+    csv_path: Path | None = manual_csv_path if manual_csv_path is not None else manual_csv
+
     as_of = as_of or date.today()
-    manual_df = _load_manual_deals(manual_csv)
+
+    # --- Load manual deals ---
+    if csv_path is not None:
+        manual_df = _load_manual_deals(csv_path)
+    else:
+        manual_df = pl.DataFrame(schema={
+            "date": pl.Date, "party_a": pl.Utf8, "party_b": pl.Utf8,
+            "deal_type": pl.Utf8, "description": pl.Utf8,
+            "source_url": pl.Utf8, "source": pl.Utf8, "confidence": pl.Float64,
+        })
 
     if manual_df.is_empty():
-        _LOG.warning("No manual deals loaded from %s", manual_csv)
+        _LOG.warning("No manual deals loaded from %s", csv_path)
 
-    # Add layer columns
+    # Ensure new columns exist on manual DataFrame
+    if "deal_mw" not in manual_df.columns:
+        manual_df = manual_df.with_columns(pl.lit(None).cast(pl.Float64).alias("deal_mw"))
+    if "buyer_type" not in manual_df.columns:
+        manual_df = manual_df.with_columns(pl.lit("other").alias("buyer_type"))
+
+    # --- Parse 8-K filings (enriched mode) ---
+    filing_rows: list[dict] = []
+    if filings:
+        watchlist = set(TICKERS)
+        for filing in filings:
+            text = filing.get("text", "")
+            filing_date_str = filing.get("date", str(as_of))
+            url = filing.get("url", "")
+            # No filer ticker in generic filing dicts — use empty string to skip self-exclusion
+            rows = _parse_8k_for_deals(text, filer_ticker="", watchlist=watchlist)
+            for row in rows:
+                row["date"] = filing_date_str
+                row["source_url"] = url
+            filing_rows.extend(rows)
+
+    # --- Combine filing rows with manual deals ---
+    if filing_rows:
+        # Parse date strings for filing rows
+        parsed_rows = []
+        for row in filing_rows:
+            d = row.get("date", str(as_of))
+            if isinstance(d, str):
+                try:
+                    row["date"] = date.fromisoformat(d)
+                except ValueError:
+                    row["date"] = as_of
+            parsed_rows.append(row)
+
+        filing_df = pl.DataFrame(parsed_rows).with_columns(
+            pl.col("date").cast(pl.Date)
+        )
+        # Ensure filing_df has all columns manual_df has (fill missing with null/default)
+        for col, dtype in manual_df.schema.items():
+            if col not in filing_df.columns:
+                filing_df = filing_df.with_columns(pl.lit(None).cast(dtype).alias(col))
+        # Align column order
+        filing_df = filing_df.select(manual_df.columns)
+        df = pl.concat([manual_df, filing_df], how="diagonal_relaxed")
+    else:
+        df = manual_df
+
+    # Cast new enrichment columns to correct types
+    df = df.with_columns([
+        pl.col("deal_mw").cast(pl.Float64),
+        pl.col("buyer_type").fill_null("other").cast(pl.Utf8),
+    ])
+
+    if enriched_mode:
+        # Enriched mode: optionally write parquet and return deals only
+        if output_path is not None:
+            output_path = Path(output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            df.write_parquet(output_path, compression="snappy")
+            _LOG.info("Saved %d deals to %s", len(df), output_path)
+        return df
+
+    # Legacy mode: add layer columns, build edges, return (deals, edges)
     layer_map = TICKER_LAYERS
-    deals = manual_df.with_columns([
+    deals = df.with_columns([
         pl.col("party_a").replace(layer_map).alias("layer_a"),
         pl.col("party_b").replace(layer_map).alias("layer_b"),
         (
