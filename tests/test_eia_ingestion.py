@@ -57,6 +57,8 @@ def test_eia_capacity_schema(tmp_path):
     assert set(df.columns) == {"date", "fuel_type", "capacity_gw"}
     assert df["capacity_gw"].dtype == pl.Float64
     assert len(df) == 4  # 2 periods × 2 fuel types
+    from datetime import date as _date
+    assert df["date"][0] == _date(2025, 1, 1), "Most recent date should be first (sorted descending)"
 
 
 def test_eia_capacity_fuel_types(tmp_path):
@@ -111,3 +113,55 @@ def test_pjm_filters_virginia_zones_only(tmp_path):
     assert "ALL_VIRGINIA" in zones
     virginia_row = df.filter(pl.col("zone") == "ALL_VIRGINIA")
     assert abs(float(virginia_row["queue_backlog_gw"][0]) - 1.3) < 0.01
+    assert int(virginia_row["project_count"][0]) == 2, "Should count exactly 2 active Virginia projects (Q001 + Q002)"
+
+
+def test_eia_capacity_returns_empty_on_http_error():
+    """EIA fetch failure → empty DataFrame with correct schema, no exception raised."""
+    import requests as _requests
+    from ingestion.eia_ingestion import fetch_eia_capacity
+
+    with patch("ingestion.eia_ingestion.requests.get") as mock_get:
+        mock_get.side_effect = _requests.exceptions.ConnectionError("timeout")
+        df = fetch_eia_capacity(api_key="test_key")
+
+    assert len(df) == 0
+    assert set(df.columns) == {"date", "fuel_type", "capacity_gw"}
+
+
+def test_pjm_returns_empty_on_http_error():
+    """PJM fetch failure → empty DataFrame with correct schema, no exception raised."""
+    import requests as _requests
+    from ingestion.eia_ingestion import fetch_pjm_queue
+
+    with patch("ingestion.eia_ingestion.requests.get") as mock_get:
+        mock_get.side_effect = _requests.exceptions.ConnectionError("timeout")
+        df = fetch_pjm_queue()
+
+    assert len(df) == 0
+    assert set(df.columns) == {"date", "zone", "queue_backlog_gw", "project_count"}
+
+
+def test_eia_capacity_filters_unknown_fuel_types():
+    """Unknown fueltypeid (e.g., COL for coal) should be excluded from results."""
+    from ingestion.eia_ingestion import fetch_eia_capacity
+
+    response_with_unknown = {
+        "response": {
+            "data": [
+                {"period": "2025-01", "fueltypeid": "NUC", "capacity": 95.4},
+                {"period": "2025-01", "fueltypeid": "COL", "capacity": 180.0},  # coal — should be excluded
+            ]
+        }
+    }
+
+    with patch("ingestion.eia_ingestion.requests.get") as mock_get:
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: response_with_unknown,
+        )
+        mock_get.return_value.raise_for_status = lambda: None
+        df = fetch_eia_capacity(api_key="test_key")
+
+    assert len(df) == 1, "Only the NUC row should survive; COL should be filtered out"
+    assert df["fuel_type"][0] == "nuclear"

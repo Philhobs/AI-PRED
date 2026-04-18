@@ -19,6 +19,7 @@ import time
 from datetime import date
 from pathlib import Path
 
+import openpyxl
 import polars as pl
 import requests
 
@@ -97,7 +98,6 @@ def fetch_pjm_queue() -> pl.DataFrame:
     _EMPTY = pl.DataFrame(
         schema={"date": pl.Date, "zone": pl.Utf8, "queue_backlog_gw": pl.Float64, "project_count": pl.Int32}
     )
-    import openpyxl
 
     try:
         resp = requests.get(_PJM_URL, timeout=60)
@@ -168,8 +168,7 @@ def save_eia_capacity(df: pl.DataFrame, output_dir: Path) -> None:
     if out_path.exists():
         existing = pl.read_parquet(out_path)
         df = pl.concat([existing, df]).unique(subset=["date", "fuel_type"], keep="last")
-    else:
-        output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)  # always ensure dir exists
     df.sort("date", descending=True).write_parquet(out_path, compression="snappy")
     _LOG.info("[EIA] Saved %d capacity records to %s", len(df), out_path)
 
@@ -180,8 +179,7 @@ def save_pjm_queue(df: pl.DataFrame, output_dir: Path) -> None:
     if out_path.exists():
         existing = pl.read_parquet(out_path)
         df = pl.concat([existing, df]).unique(subset=["date", "zone"], keep="last")
-    else:
-        output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)  # always ensure dir exists
     df.sort("date", descending=True).write_parquet(out_path, compression="snappy")
     _LOG.info("[PJM] Saved %d queue records to %s", len(df), out_path)
 
