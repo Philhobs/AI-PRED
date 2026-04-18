@@ -70,9 +70,8 @@ def compute_us_power_moat_score(
         eia.filter(
             pl.col("fuel_type").is_in(["nuclear", "natural_gas"]) & (pl.col("date") <= as_of)
         )
-        .sort("date", descending=True)
         .group_by("fuel_type")
-        .agg(pl.col("capacity_gw").first())
+        .agg(pl.col("capacity_gw").sort_by("date", descending=True).first())
     )
     if recent_eia.is_empty():
         return 0.0
@@ -128,8 +127,22 @@ def compute_geo_tailwind_score(
         if region_data.is_empty():
             continue
 
-        curr = region_data.filter(pl.col("year") <= as_of_year).sort("year", descending=True).head(len(countries))
-        prev = region_data.filter(pl.col("year") <= as_of_year - 1).sort("year", descending=True).head(len(countries))
+        curr = (
+            region_data.filter(pl.col("year") <= as_of_year)
+            .group_by("country")
+            .agg(
+                pl.col("renewables_pct").sort_by("year", descending=True).first(),
+                pl.col("carbon_intensity_gco2_per_kwh").sort_by("year", descending=True).first(),
+            )
+        )
+        prev = (
+            region_data.filter(pl.col("year") <= as_of_year - 1)
+            .group_by("country")
+            .agg(
+                pl.col("renewables_pct").sort_by("year", descending=True).first(),
+                pl.col("carbon_intensity_gco2_per_kwh").sort_by("year", descending=True).first(),
+            )
+        )
 
         if curr.is_empty():
             continue
