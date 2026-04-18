@@ -115,6 +115,8 @@ def _extract_deal_mw(text: str) -> float | None:
 
     Returns MW as float (GW converted × 1000), or None if not found.
     """
+    if not text:
+        return None
     for i, pat in enumerate(_MW_PATTERNS):
         m = pat.search(text)
         if m:
@@ -139,6 +141,8 @@ _UTILITY_KEYWORDS = {
 
 def _classify_buyer_type(counterparty: str) -> str:
     """Classify counterparty as hyperscaler, crypto_miner, utility, or other."""
+    if not counterparty:
+        return "other"
     lower = counterparty.lower()
     if any(kw in lower for kw in _HYPERSCALER_KEYWORDS):
         return "hyperscaler"
@@ -163,36 +167,36 @@ def _parse_8k_for_deals(
     text_lower = text.lower()
     seen_counterparties: set[str] = set()
 
-    for name, counterparty in _NAME_TO_TICKER.items():
-        if counterparty in seen_counterparties:
+    for company_name, ticker in _NAME_TO_TICKER.items():
+        if ticker in seen_counterparties:
             continue
-        if counterparty == filer_ticker:
+        if ticker == filer_ticker:
             continue
-        if counterparty not in watchlist:
+        if ticker not in watchlist:
             continue
-        if name not in text_lower:
+        if company_name not in text_lower:
             continue
 
         deal_type = _classify_deal_type(text)
         # Extract a short description from the first sentence mentioning the counterparty
         sentences = re.split(r"[.!?]", text)
         desc = next(
-            (s.strip() for s in sentences if name in s.lower()),
+            (s.strip() for s in sentences if company_name in s.lower()),
             text[:200].strip(),
         )
 
         deal_dict = {
             "party_a": filer_ticker,
-            "party_b": counterparty,
+            "party_b": ticker,
             "deal_type": deal_type,
             "description": desc[:300],
             "source": "8-K",
             "confidence": 0.7,
         }
         deal_dict["deal_mw"] = _extract_deal_mw(text)
-        deal_dict["buyer_type"] = _classify_buyer_type(counterparty)
+        deal_dict["buyer_type"] = _classify_buyer_type(company_name)
         rows.append(deal_dict)
-        seen_counterparties.add(counterparty)
+        seen_counterparties.add(ticker)
 
     return rows
 

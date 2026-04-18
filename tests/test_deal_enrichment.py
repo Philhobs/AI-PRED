@@ -73,3 +73,7 @@ def test_deals_parquet_has_new_columns(tmp_path):
 
     assert "deal_mw" in deals.columns, "deal_mw column must be present"
     assert "buyer_type" in deals.columns, "buyer_type column must be present"
+
+    # Verify actual values from the Microsoft 300 MW PPA mock
+    assert deals["buyer_type"][0] == "hyperscaler", f"Expected hyperscaler, got {deals['buyer_type'][0]}"
+    assert deals["deal_mw"][0] == pytest.approx(300.0), f"Expected 300.0 MW, got {deals['deal_mw'][0]}"
