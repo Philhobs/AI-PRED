@@ -33,6 +33,7 @@ def _model_agreement(df: pl.DataFrame) -> pl.Series:
     0.67 = two of three agree.
     0.33 = one of three agrees.
     0.0 = none agree.
+    null = ensemble return is exactly zero (direction undefined).
     """
     ensemble_sign = np.sign(df["expected_annual_return"].to_numpy())
     agreements = []
@@ -40,7 +41,9 @@ def _model_agreement(df: pl.DataFrame) -> pl.Series:
         sub_sign = np.sign(df[col].to_numpy())
         agreements.append((sub_sign == ensemble_sign).astype(float))
     mean_agreement = (agreements[0] + agreements[1] + agreements[2]) / 3.0
-    return pl.Series("model_agreement", mean_agreement.tolist())
+    # Emit null when ensemble prediction is exactly zero (direction undefined)
+    result = [None if s == 0 else float(v) for s, v in zip(ensemble_sign, mean_agreement)]
+    return pl.Series("model_agreement", result, dtype=pl.Float64)
 
 
 def _apply_liquidity(df: pl.DataFrame, caps: dict[str, float | None]) -> pl.DataFrame:
@@ -92,7 +95,7 @@ def _get_market_caps(tickers: list[str], as_of: date) -> dict[str, float | None]
         except Exception as exc:
             _LOG.debug("Failed to fetch market cap for %s: %s", ticker, exc)
             fetched[ticker] = None
-        time.sleep(0.1)
+        time.sleep(1)
 
     if fetched:
         new_rows = pl.DataFrame({

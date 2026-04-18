@@ -63,6 +63,17 @@ def test_is_liquid_threshold():
     assert result.filter(pl.col("ticker") == "TSM")["is_liquid"][0] == True
 
 
+def test_is_liquid_none_market_cap():
+    from processing.portfolio_metrics import _apply_liquidity
+    df = _make_predictions([
+        {"ticker": "NEWCO", "ensemble": 1.0, "lgbm": 0.8, "rf": 1.2, "ridge": 1.0},
+    ])
+    caps = {"NEWCO": None}
+    result = _apply_liquidity(df, caps)
+    assert result["is_liquid"][0] == False, "None market cap → not liquid"
+    assert result["market_cap_b"][0] is None, "None market cap → null market_cap_b"
+
+
 def test_enrich_writes_enriched_parquet(tmp_path, monkeypatch):
     from processing import portfolio_metrics
 

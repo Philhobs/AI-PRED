@@ -233,7 +233,7 @@ def run_inference(
     # Enrich predictions with portfolio metrics (liquidity, agreement, correlation)
     try:
         from processing.portfolio_metrics import enrich
-        enrich(date_str)
+        enrich(date_str, predictions_dir=output_dir)
     except Exception as exc:
         _LOG.warning("Portfolio metrics enrichment failed (non-fatal): %s", exc, exc_info=True)
 
