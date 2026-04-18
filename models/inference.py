@@ -11,8 +11,11 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import pickle
 from pathlib import Path
+
+_LOG = logging.getLogger(__name__)
 
 import numpy as np
 import pandas as pd
@@ -226,6 +229,13 @@ def run_inference(
     n_layers = combined["layer"].n_unique()
     print(f"[Inference] {n_tickers} tickers across {n_layers} layers → {out_path}")
     print(combined.select(["rank", "ticker", "layer", "expected_annual_return"]).head(10))
+
+    # Enrich predictions with portfolio metrics (liquidity, agreement, correlation)
+    try:
+        from processing.portfolio_metrics import enrich
+        enrich(date_str)
+    except Exception as exc:
+        _LOG.warning("Portfolio metrics enrichment failed (non-fatal): %s", exc, exc_info=True)
 
     return combined
 
