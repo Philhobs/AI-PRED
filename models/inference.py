@@ -116,8 +116,7 @@ def _build_feature_df(
             dtype = pl.Int32 if col == "inst_holder_count" else pl.Float64
             df = df.with_columns(pl.lit(None).cast(dtype).alias(col))
 
-    # Join energy geography features (us_power_moat_score, geo_weighted_tailwind_score)
-    # energy_deal_mw_90d and hyperscaler_ppa_count_90d come from join_graph_features above.
+    # Join energy geography features — adds us_power_moat_score and geo_weighted_tailwind_score.
     df = join_energy_geo_features(df)
 
     return df

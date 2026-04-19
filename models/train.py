@@ -228,8 +228,7 @@ def build_training_dataset(
             dtype = pl.Int32 if col == "inst_holder_count" else pl.Float64
             df = df.with_columns(pl.lit(None).cast(dtype).alias(col))
 
-    # Join energy geography features (us_power_moat_score, geo_weighted_tailwind_score,
-    # energy_deal_mw_90d, hyperscaler_ppa_count_90d) — uses default paths via Path(__file__).parent.parent
+    # Join energy geography features — adds us_power_moat_score and geo_weighted_tailwind_score.
     df = join_energy_geo_features(df)
 
     return (
