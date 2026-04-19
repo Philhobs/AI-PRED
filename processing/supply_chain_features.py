@@ -70,7 +70,7 @@ def _build_close_matrix(
             continue
         year_files = sorted(
             f for f in ticker_dir.glob("*.parquet")
-            if int(f.stem) >= load_start.year
+            if f.stem.isdigit() and int(f.stem) >= load_start.year
         )
         if not year_files:
             continue

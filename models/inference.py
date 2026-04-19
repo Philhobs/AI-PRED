@@ -27,10 +27,11 @@ from ingestion.ticker_registry import (
 from models.train import (
     FEATURE_COLS, INSIDER_FEATURE_COLS, SENTIMENT_FEATURE_COLS,
     SHORT_INTEREST_FEATURE_COLS, EARNINGS_FEATURE_COLS, GRAPH_FEATURE_COLS,
-    OWNERSHIP_FEATURE_COLS, ENERGY_FEATURE_COLS,
+    OWNERSHIP_FEATURE_COLS, ENERGY_FEATURE_COLS, SUPPLY_CHAIN_FEATURE_COLS,
 )
 from processing.earnings_features import join_earnings_features
 from processing.energy_geo_features import join_energy_geo_features
+from processing.supply_chain_features import join_supply_chain_features
 from processing.fundamental_features import join_fundamentals
 from processing.graph_features import join_graph_features
 from processing.insider_features import join_insider_features
@@ -58,7 +59,7 @@ def _build_feature_df(
     date_str: str,
     data_dir: Path,
 ) -> pl.DataFrame:
-    """Build the 43-feature DataFrame for all tickers on date_str."""
+    """Build the 47-feature DataFrame for all tickers on date_str."""
     ohlcv_dir        = data_dir / "financials" / "ohlcv"
     fundamentals_dir = data_dir / "financials" / "fundamentals"
 
@@ -118,6 +119,8 @@ def _build_feature_df(
 
     # Join energy geography features — adds us_power_moat_score and geo_weighted_tailwind_score.
     df = join_energy_geo_features(df)
+
+    df = join_supply_chain_features(df, ohlcv_dir=ohlcv_dir)
 
     return df
 

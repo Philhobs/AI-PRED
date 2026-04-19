@@ -37,6 +37,7 @@ from ingestion.ticker_registry import LAYER_IDS, tickers_in_layer, layers as all
 from processing.graph_features import join_graph_features
 from processing.ownership_features import join_ownership_features
 from processing.energy_geo_features import join_energy_geo_features
+from processing.supply_chain_features import join_supply_chain_features
 
 _LOG = logging.getLogger(__name__)
 
@@ -93,11 +94,18 @@ ENERGY_FEATURE_COLS = [
     "energy_deal_mw_90d",
     "hyperscaler_ppa_count_90d",
 ]
+SUPPLY_CHAIN_FEATURE_COLS = [
+    "own_layer_momentum_20d",
+    "ecosystem_momentum_20d",
+    "supply_chain_correlation_60d",
+    "peer_eps_surprise_mean",
+]
 FEATURE_COLS = (
     PRICE_FEATURE_COLS + FUND_FEATURE_COLS + INSIDER_FEATURE_COLS
     + SENTIMENT_FEATURE_COLS + SHORT_INTEREST_FEATURE_COLS
     + EARNINGS_FEATURE_COLS + GRAPH_FEATURE_COLS
-    + OWNERSHIP_FEATURE_COLS + ENERGY_FEATURE_COLS  # 39 → 43 features total
+    + OWNERSHIP_FEATURE_COLS + ENERGY_FEATURE_COLS
+    + SUPPLY_CHAIN_FEATURE_COLS  # 43 → 47 features total
 )
 
 
@@ -230,6 +238,8 @@ def build_training_dataset(
 
     # Join energy geography features — adds us_power_moat_score and geo_weighted_tailwind_score.
     df = join_energy_geo_features(df)
+
+    df = join_supply_chain_features(df, ohlcv_dir=ohlcv_dir)
 
     return (
         df.select(["ticker", "date"] + FEATURE_COLS + ["label_return_1y"])
