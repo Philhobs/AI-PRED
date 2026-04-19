@@ -77,3 +77,64 @@ def test_deals_parquet_has_new_columns(tmp_path):
     # Verify actual values from the Microsoft 300 MW PPA mock
     assert deals["buyer_type"][0] == "hyperscaler", f"Expected hyperscaler, got {deals['buyer_type'][0]}"
     assert deals["deal_mw"][0] == pytest.approx(300.0), f"Expected 300.0 MW, got {deals['deal_mw'][0]}"
+
+
+def test_energy_deal_mw_90d_feature():
+    """energy_deal_mw_90d sums MW of energy deals for the ticker in last 90d."""
+    from processing.graph_features import _compute_energy_deal_mw_90d
+    from datetime import date, timedelta
+
+    as_of = date(2026, 1, 15)
+    deals = pl.DataFrame({
+        "date": [as_of - timedelta(days=30), as_of - timedelta(days=200)],
+        "party_a": ["CEG", "CEG"],
+        "party_b": ["MSFT", "AMZN"],
+        "deal_type": ["power_purchase_agreement", "power_purchase_agreement"],
+        "deal_mw": [500.0, 300.0],
+        "buyer_type": ["hyperscaler", "hyperscaler"],
+    })
+
+    result = _compute_energy_deal_mw_90d("CEG", deals, as_of)
+    assert result == pytest.approx(500.0), "Only the deal within 90d should be counted"
+
+
+def test_energy_deal_mw_90d_null_treated_as_zero():
+    """deal_mw = None is treated as 0 MW (don't penalize deals missing capacity info)."""
+    from processing.graph_features import _compute_energy_deal_mw_90d
+    from datetime import date, timedelta
+
+    as_of = date(2026, 1, 15)
+    deals = pl.DataFrame({
+        "date": [as_of - timedelta(days=30)],
+        "party_a": ["CEG"],
+        "party_b": ["MSFT"],
+        "deal_type": ["power_purchase_agreement"],
+        "deal_mw": [None],
+        "buyer_type": ["hyperscaler"],
+    }).with_columns(pl.col("deal_mw").cast(pl.Float64))
+
+    result = _compute_energy_deal_mw_90d("CEG", deals, as_of)
+    assert result == pytest.approx(0.0)
+
+
+def test_hyperscaler_ppa_count_90d_feature():
+    """hyperscaler_ppa_count_90d counts PPAs where buyer_type is hyperscaler."""
+    from processing.graph_features import _compute_hyperscaler_ppa_count_90d
+    from datetime import date, timedelta
+
+    as_of = date(2026, 1, 15)
+    deals = pl.DataFrame({
+        "date": [
+            as_of - timedelta(days=10),   # within window, hyperscaler PPA
+            as_of - timedelta(days=20),   # within window, crypto miner PPA
+            as_of - timedelta(days=200),  # outside window, hyperscaler PPA
+        ],
+        "party_a": ["CEG", "CEG", "CEG"],
+        "party_b": ["MSFT", "IREN", "AMZN"],
+        "deal_type": ["power_purchase_agreement", "power_purchase_agreement", "power_purchase_agreement"],
+        "deal_mw": [500.0, 100.0, 300.0],
+        "buyer_type": ["hyperscaler", "crypto_miner", "hyperscaler"],
+    })
+
+    result = _compute_hyperscaler_ppa_count_90d("CEG", deals, as_of)
+    assert result == 1, "Only 1 hyperscaler PPA within 90d window"

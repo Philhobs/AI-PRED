@@ -107,6 +107,59 @@ def _compute_deal_count_90d(
     return len(partner_deals)
 
 
+def _compute_energy_deal_mw_90d(
+    ticker: str,
+    deals: pl.DataFrame,
+    as_of: date,
+) -> float:
+    """
+    Total MW contracted by this ticker in energy deals within the last 90 days.
+
+    Only counts power_purchase_agreement where ticker is party_a or party_b.
+    Null deal_mw values are treated as 0.
+    Returns 0.0 when no data or deal_mw column absent.
+    """
+    if deals.is_empty() or "deal_mw" not in deals.columns:
+        return 0.0
+
+    window_start = as_of - timedelta(days=90)
+    ticker_deals = deals.filter(
+        ((pl.col("party_a") == ticker) | (pl.col("party_b") == ticker)) &
+        (pl.col("deal_type") == "power_purchase_agreement") &
+        (pl.col("date") >= window_start) &
+        (pl.col("date") <= as_of)
+    )
+    if ticker_deals.is_empty():
+        return 0.0
+
+    return float(ticker_deals["deal_mw"].fill_null(0.0).sum())
+
+
+def _compute_hyperscaler_ppa_count_90d(
+    ticker: str,
+    deals: pl.DataFrame,
+    as_of: date,
+) -> int:
+    """
+    Count of PPAs where this ticker is the power seller and buyer is a hyperscaler,
+    within the last 90 days.
+
+    Returns 0 for non-power-company tickers.
+    """
+    if deals.is_empty() or "buyer_type" not in deals.columns:
+        return 0
+
+    window_start = as_of - timedelta(days=90)
+    hyper_deals = deals.filter(
+        ((pl.col("party_a") == ticker) | (pl.col("party_b") == ticker)) &
+        (pl.col("deal_type") == "power_purchase_agreement") &
+        (pl.col("buyer_type") == "hyperscaler") &
+        (pl.col("date") >= window_start) &
+        (pl.col("date") <= as_of)
+    )
+    return len(hyper_deals)
+
+
 def _compute_hops_to_hyperscaler(graph: nx.Graph, ticker: str) -> float:
     """Encoded proximity to hyperscalers as 1/(hops+1).
 
@@ -187,6 +240,8 @@ def compute_graph_features(
                     graph, ticker, deals, row_date
                 )),
                 "graph_hops_to_hyperscaler": hop_distances.get(ticker, 0.0),
+                "energy_deal_mw_90d":         float(_compute_energy_deal_mw_90d(ticker, deals, row_date)),
+                "hyperscaler_ppa_count_90d":  float(_compute_hyperscaler_ppa_count_90d(ticker, deals, row_date)),
             })
 
     _SCHEMA = {
@@ -195,6 +250,8 @@ def compute_graph_features(
         "graph_partner_momentum_30d": pl.Float64,
         "graph_deal_count_90d": pl.Float64,
         "graph_hops_to_hyperscaler": pl.Float64,
+        "energy_deal_mw_90d":        pl.Float64,
+        "hyperscaler_ppa_count_90d": pl.Float64,
     }
     result = pl.DataFrame(rows, schema=_SCHEMA)
     _LOG.info(
