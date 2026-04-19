@@ -36,6 +36,7 @@ from processing.short_interest_features import join_short_interest_features
 from ingestion.ticker_registry import LAYER_IDS, tickers_in_layer, layers as all_layers
 from processing.graph_features import join_graph_features
 from processing.ownership_features import join_ownership_features
+from processing.energy_geo_features import join_energy_geo_features
 
 _LOG = logging.getLogger(__name__)
 
@@ -86,11 +87,17 @@ OWNERSHIP_FEATURE_COLS = [
     "inst_concentration_top10",
     "inst_momentum_2q",
 ]
+ENERGY_FEATURE_COLS = [
+    "us_power_moat_score",
+    "geo_weighted_tailwind_score",
+    "energy_deal_mw_90d",
+    "hyperscaler_ppa_count_90d",
+]
 FEATURE_COLS = (
     PRICE_FEATURE_COLS + FUND_FEATURE_COLS + INSIDER_FEATURE_COLS
     + SENTIMENT_FEATURE_COLS + SHORT_INTEREST_FEATURE_COLS
     + EARNINGS_FEATURE_COLS + GRAPH_FEATURE_COLS
-    + OWNERSHIP_FEATURE_COLS  # 34 → 39 features total
+    + OWNERSHIP_FEATURE_COLS + ENERGY_FEATURE_COLS  # 39 → 43 features total
 )
 
 
@@ -197,11 +204,13 @@ def build_training_dataset(
             df = df.with_columns(pl.lit(None).cast(dtype).alias(col))
 
     # Join graph features (backward asof join on ticker, date)
+    # join_graph_features also produces energy_deal_mw_90d and hyperscaler_ppa_count_90d
+    # (counted in ENERGY_FEATURE_COLS), so null-fill those too when the directory is absent.
     graph_features_dir = fundamentals_dir.parent / "graph" / "features"
     if graph_features_dir.exists():
         df = join_graph_features(df, graph_features_dir)
     else:
-        for col in GRAPH_FEATURE_COLS:
+        for col in GRAPH_FEATURE_COLS + ["energy_deal_mw_90d", "hyperscaler_ppa_count_90d"]:
             df = df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
 
     # Join 13F institutional ownership features (backward asof join on ticker, date)
@@ -218,6 +227,10 @@ def build_training_dataset(
         for col in OWNERSHIP_FEATURE_COLS:
             dtype = pl.Int32 if col == "inst_holder_count" else pl.Float64
             df = df.with_columns(pl.lit(None).cast(dtype).alias(col))
+
+    # Join energy geography features (us_power_moat_score, geo_weighted_tailwind_score,
+    # energy_deal_mw_90d, hyperscaler_ppa_count_90d) — uses default paths via Path(__file__).parent.parent
+    df = join_energy_geo_features(df)
 
     return (
         df.select(["ticker", "date"] + FEATURE_COLS + ["label_return_1y"])

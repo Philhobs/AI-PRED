@@ -27,9 +27,10 @@ from ingestion.ticker_registry import (
 from models.train import (
     FEATURE_COLS, INSIDER_FEATURE_COLS, SENTIMENT_FEATURE_COLS,
     SHORT_INTEREST_FEATURE_COLS, EARNINGS_FEATURE_COLS, GRAPH_FEATURE_COLS,
-    OWNERSHIP_FEATURE_COLS,
+    OWNERSHIP_FEATURE_COLS, ENERGY_FEATURE_COLS,
 )
 from processing.earnings_features import join_earnings_features
+from processing.energy_geo_features import join_energy_geo_features
 from processing.fundamental_features import join_fundamentals
 from processing.graph_features import join_graph_features
 from processing.insider_features import join_insider_features
@@ -57,7 +58,7 @@ def _build_feature_df(
     date_str: str,
     data_dir: Path,
 ) -> pl.DataFrame:
-    """Build the 39-feature DataFrame for all tickers on date_str."""
+    """Build the 43-feature DataFrame for all tickers on date_str."""
     ohlcv_dir        = data_dir / "financials" / "ohlcv"
     fundamentals_dir = data_dir / "financials" / "fundamentals"
 
@@ -103,7 +104,8 @@ def _build_feature_df(
     if graph_features_dir.exists():
         df = join_graph_features(df, graph_features_dir)
     else:
-        for col in GRAPH_FEATURE_COLS:
+        # join_graph_features also produces energy_deal_mw_90d and hyperscaler_ppa_count_90d
+        for col in GRAPH_FEATURE_COLS + ["energy_deal_mw_90d", "hyperscaler_ppa_count_90d"]:
             df = df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
 
     ownership_features_dir = data_dir / "financials" / "13f_holdings" / "features"
@@ -113,6 +115,10 @@ def _build_feature_df(
         for col in OWNERSHIP_FEATURE_COLS:
             dtype = pl.Int32 if col == "inst_holder_count" else pl.Float64
             df = df.with_columns(pl.lit(None).cast(dtype).alias(col))
+
+    # Join energy geography features (us_power_moat_score, geo_weighted_tailwind_score)
+    # energy_deal_mw_90d and hyperscaler_ppa_count_90d come from join_graph_features above.
+    df = join_energy_geo_features(df)
 
     return df
 
