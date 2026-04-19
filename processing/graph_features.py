@@ -276,6 +276,8 @@ def join_graph_features(df: pl.DataFrame, graph_features_dir: Path) -> pl.DataFr
         "graph_partner_momentum_30d",
         "graph_deal_count_90d",
         "graph_hops_to_hyperscaler",
+        "energy_deal_mw_90d",
+        "hyperscaler_ppa_count_90d",
     ]
     if not any(graph_features_dir.glob("*/graph_daily.parquet")):
         _LOG.warning("No graph feature parquets in %s — features will be null", graph_features_dir)
