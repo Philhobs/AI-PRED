@@ -122,7 +122,7 @@ def _build_feature_df(
     # Join energy geography features — adds us_power_moat_score and geo_weighted_tailwind_score.
     df = join_energy_geo_features(df)
 
-    df = join_supply_chain_features(df, ohlcv_dir=ohlcv_dir)
+    df = join_supply_chain_features(df, ohlcv_dir=ohlcv_dir, fx_dir=ohlcv_dir.parent / "fx")
     df = join_fx_features(df, ohlcv_dir=ohlcv_dir)
 
     return df
@@ -202,7 +202,7 @@ def run_inference(
     artifacts_dir: Path = Path("models/artifacts"),
     output_dir: Path = Path("data/predictions"),
 ) -> pl.DataFrame:
-    """Run all 10 layer models and return globally ranked predictions.
+    """Run all 11 layer models and return globally ranked predictions.
 
     Raises ValueError if date_str is a weekend.
     Raises RuntimeError if no price data exists for date_str.

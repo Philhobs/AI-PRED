@@ -241,7 +241,7 @@ def build_training_dataset(
     # Join energy geography features — adds us_power_moat_score and geo_weighted_tailwind_score.
     df = join_energy_geo_features(df)
 
-    df = join_supply_chain_features(df, ohlcv_dir=ohlcv_dir)
+    df = join_supply_chain_features(df, ohlcv_dir=ohlcv_dir, fx_dir=ohlcv_dir.parent / "fx")
     df = join_fx_features(df, ohlcv_dir=ohlcv_dir)
 
     return (
@@ -626,7 +626,7 @@ if __name__ == "__main__":
     _LOG.info("Training global ensemble with walk-forward CV...")
     train(ohlcv_dir, fundamentals_dir, artifacts_dir)
 
-    _LOG.info("Training per-layer ensembles for 10 supply chain layers...")
+    _LOG.info("Training per-layer ensembles for 11 supply chain layers...")
     train_all_layers(ohlcv_dir, fundamentals_dir, artifacts_dir)
     _LOG.info("[Train] All layer artifacts → %s", artifacts_dir)
     print(f"[Train] Artifacts → {artifacts_dir}")
