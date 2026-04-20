@@ -7,8 +7,10 @@ Schema: date (pl.Date), rate (pl.Float64).
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 
+import pandas as pd
 import polars as pl
 import yfinance as yf
 
@@ -60,6 +62,10 @@ def fetch_fx_rates(
 
     result: dict[str, pl.DataFrame] = {}
     for pair in pairs:
+        if pair not in _FX_SYMBOLS:
+            _LOG.warning("[FX] Unknown pair %s — skipping", pair)
+            result[pair] = pl.DataFrame(schema=_EMPTY_SCHEMA)
+            continue
         yf_symbol = _FX_SYMBOLS[pair]
         try:
             raw = yf.download(
@@ -73,8 +79,10 @@ def fetch_fx_rates(
                 result[pair] = pl.DataFrame(schema=_EMPTY_SCHEMA)
                 continue
 
-            # yfinance may return multi-level columns for single ticker in newer versions
-            close = raw["Close"] if "Close" in raw.columns else raw[("Close", yf_symbol)]
+            # Flatten MultiIndex columns (yfinance >= 0.2.38 default for single ticker)
+            if isinstance(raw.columns, pd.MultiIndex):
+                raw.columns = raw.columns.get_level_values(0)
+            close = raw["Close"]
             df = (
                 pl.from_pandas(close.reset_index())
                 .rename({"Date": "date", "Close": "rate"})
@@ -84,6 +92,7 @@ def fetch_fx_rates(
             )
             df = df.with_columns(pl.col("rate").cast(pl.Float64))
             result[pair] = df
+            time.sleep(1)
 
         except Exception as exc:
             _LOG.warning("[FX] Failed to fetch %s (%s): %s", pair, yf_symbol, exc)
@@ -105,13 +114,15 @@ def save_fx_rates(fx_dir: Path, pairs: dict[str, pl.DataFrame]) -> None:
             continue
         path = fx_dir / f"{pair}.parquet"
         if path.exists():
-            existing = pl.read_parquet(path)
-            df = pl.concat([existing, df]).unique("date").sort("date")
+            try:
+                existing = pl.read_parquet(path)
+                df = pl.concat([existing, df]).unique("date", keep="last").sort("date")
+            except Exception as exc:
+                _LOG.warning("[FX] Failed to read existing %s, overwriting: %s", path.name, exc)
         df.write_parquet(path, compression="snappy")
 
 
 if __name__ == "__main__":
-    import datetime as dt
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     _ROOT = Path(__file__).parent.parent
     fx_dir = _ROOT / "data" / "raw" / "financials" / "fx"

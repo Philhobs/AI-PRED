@@ -6,7 +6,6 @@ from unittest.mock import patch
 
 import pandas as pd
 import polars as pl
-import pytest
 
 
 def _mock_yf_response(rates: list[float], dates: list[str]) -> pd.DataFrame:
@@ -100,3 +99,27 @@ def test_save_fx_rates_deduplicates(tmp_path):
     df = pl.read_parquet(tmp_path / "EURUSD.parquet")
     assert len(df) == 3  # Jan 1, 2, 3 — no duplicate Jan 2
     assert df["date"].to_list() == [date(2025, 1, 1), date(2025, 1, 2), date(2025, 1, 3)]
+
+
+def test_fetch_fx_rates_handles_multiindex_columns():
+    """Handles yfinance multi-level column headers (yfinance >= 0.2.38 default)."""
+    import pandas as pd
+    from ingestion.fx_ingestion import fetch_fx_rates
+
+    symbol = "EURUSD=X"
+    dates = ["2025-01-01", "2025-01-02"]
+    rates = [1.08, 1.09]
+    arrays = [["Close", "High", "Low", "Open", "Volume"], [symbol] * 5]
+    mock_data = pd.DataFrame(
+        [[r, r, r, r, 0] for r in rates],
+        columns=pd.MultiIndex.from_arrays(arrays),
+        index=pd.DatetimeIndex(dates, name="Date"),
+    )
+    with patch("ingestion.fx_ingestion.yf.download", return_value=mock_data):
+        result = fetch_fx_rates(["EURUSD"], years=1)
+
+    df = result["EURUSD"]
+    assert len(df) == 2
+    assert df["date"].dtype == pl.Date
+    assert df["rate"].dtype == pl.Float64
+    assert abs(df["rate"][0] - 1.08) < 0.001
