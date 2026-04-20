@@ -155,3 +155,9 @@ def test_train_raises_on_insufficient_data(tmp_path):
             artifacts_dir=artifacts_dir,
             val_window_days=252,  # production default — 300 days is way too few
         )
+
+
+def test_feature_cols_contains_fx():
+    from models.train import FEATURE_COLS, FX_FEATURE_COLS
+    assert all(c in FEATURE_COLS for c in FX_FEATURE_COLS)
+    assert len(FEATURE_COLS) == 48

@@ -32,7 +32,6 @@ from models.train import (
 )
 from processing.earnings_features import join_earnings_features
 from processing.energy_geo_features import join_energy_geo_features
-from processing.supply_chain_features import join_supply_chain_features
 from processing.fx_features import join_fx_features
 from processing.fundamental_features import join_fundamentals
 from processing.graph_features import join_graph_features
@@ -41,6 +40,7 @@ from processing.ownership_features import join_ownership_features
 from processing.price_features import build_price_features
 from processing.sentiment_features import join_sentiment_features
 from processing.short_interest_features import join_short_interest_features
+from processing.supply_chain_features import join_supply_chain_features
 
 
 def _load_pickle(path: Path):

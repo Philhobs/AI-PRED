@@ -4,7 +4,7 @@ Provides:
   build_usd_close_matrix() — convert non-USD close prices to USD via daily FX rates
   join_fx_features()       — add fx_adjusted_return_20d to training spine
 
-Called by models/train.py via join_fx_features().
+Called by models/train.py and models/inference.py via join_fx_features().
 """
 from __future__ import annotations
 
