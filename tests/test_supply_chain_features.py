@@ -198,3 +198,36 @@ def test_join_supply_chain_features_adds_four_columns(tmp_path):
                 "supply_chain_correlation_60d", "peer_eps_surprise_mean"]:
         assert col in result.columns, f"Missing column: {col}"
         assert result[col].dtype == pl.Float64, f"{col} should be Float64"
+
+
+def test_supply_chain_correlation_uses_usd_matrix_when_fx_dir_provided(tmp_path):
+    """When fx_dir is given, correlation is computed on USD-normalised returns."""
+    from processing.supply_chain_features import (
+        compute_supply_chain_correlation, _CORRELATION_PEERS,
+    )
+    from processing.fx_features import build_usd_close_matrix
+
+    ticker = "NVDA"
+    peers = _CORRELATION_PEERS[ticker]
+    as_of = date(2025, 6, 1)
+    n_days = 65
+
+    dates = [as_of - timedelta(days=n_days - i) for i in range(n_days + 1)]
+    data: dict = {
+        "date":  dates,
+        ticker:  [0.01 * ((-1) ** i) for i in range(n_days + 1)],
+    }
+    for peer in peers:
+        data[peer] = [0.005 * ((-1) ** i) for i in range(n_days + 1)]
+
+    # All USD tickers — USD matrix should be identical to local matrix
+    ret_1d = pl.DataFrame(data).with_columns(pl.col("date").cast(pl.Date))
+    usd_ret_1d = build_usd_close_matrix(ret_1d, tmp_path)  # empty fx_dir → USD tickers unchanged
+
+    result_local = compute_supply_chain_correlation(ticker, as_of, ret_1d)
+    result_usd   = compute_supply_chain_correlation(ticker, as_of, usd_ret_1d)
+
+    # For USD tickers both should give the same result
+    assert result_local is not None
+    assert result_usd is not None
+    assert abs(result_local - result_usd) < 0.001

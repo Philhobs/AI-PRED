@@ -235,6 +235,7 @@ def join_supply_chain_features(
     df: pl.DataFrame,
     ohlcv_dir: Path | None = None,
     earnings_dir: Path | None = None,
+    fx_dir: Path | None = None,
 ) -> pl.DataFrame:
     """
     Add own_layer_momentum_20d, ecosystem_momentum_20d,
@@ -243,7 +244,9 @@ def join_supply_chain_features(
     Args:
         df: Training spine with columns [ticker, date, ...].
         ohlcv_dir: Path to data/raw/financials/ohlcv/ (default: resolved from __file__).
-        earnings_dir: Path to data/raw/financials/earnings/ (default: resolved from __file__).
+        earnings_dir: Path to data/raw/fundamentals/earnings/ (default: resolved from __file__).
+        fx_dir: Path to data/raw/financials/fx/ for USD-normalised correlation matrix.
+                When None, correlation uses local-currency returns (backwards-compatible).
 
     Returns df with 4 new Float64 columns. Missing data → null (not 0).
     """
@@ -275,6 +278,17 @@ def join_supply_chain_features(
         ["date"] + [pl.col(t).pct_change(1).alias(t) for t in ticker_cols]
     )
 
+    # For cross-ticker correlations, use USD-normalised returns when fx_dir is available
+    # to avoid spurious correlations from shared EUR/JPY exposure.
+    if fx_dir is not None and fx_dir.exists():
+        from processing.fx_features import build_usd_close_matrix
+        usd_close = build_usd_close_matrix(close_wide, fx_dir)
+        ret_1d_corr = usd_close.select(
+            ["date"] + [pl.col(t).pct_change(1).alias(t) for t in ticker_cols]
+        )
+    else:
+        ret_1d_corr = ret_1d_wide
+
     earnings_path = earnings_dir / "earnings_surprises.parquet"
     earnings_df = (
         pl.read_parquet(earnings_path)
@@ -298,7 +312,7 @@ def join_supply_chain_features(
 
         own_mom_vals.append(compute_layer_momentum(ticker, as_of, ret_20d_wide, exclude_own_layer=False))
         eco_mom_vals.append(compute_layer_momentum(ticker, as_of, ret_20d_wide, exclude_own_layer=True))
-        corr_vals.append(compute_supply_chain_correlation(ticker, as_of, ret_1d_wide))
+        corr_vals.append(compute_supply_chain_correlation(ticker, as_of, ret_1d_corr))
         eps_vals.append(compute_peer_eps_surprise(ticker, as_of, earnings_df))
 
     return df.with_columns([
