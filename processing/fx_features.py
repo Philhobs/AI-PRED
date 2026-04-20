@@ -12,11 +12,10 @@ import logging
 from datetime import date, timedelta
 from pathlib import Path
 
-import numpy as np
 import polars as pl
 
 from ingestion.fx_ingestion import CURRENCY_TO_PAIR
-from ingestion.ticker_registry import TICKER_CURRENCY, non_usd_tickers
+from ingestion.ticker_registry import TICKER_CURRENCY
 
 _LOG = logging.getLogger(__name__)
 
@@ -176,25 +175,8 @@ def join_fx_features(
         ]
     )
 
-    vals: list[float | None] = []
-    for row in df.select(["ticker", "date"]).iter_rows(named=True):
-        ticker = row["ticker"]
-        as_of  = row["date"]
-
-        if TICKER_CURRENCY.get(ticker, "USD") == "USD" or ticker not in ret_20d_usd.columns:
-            vals.append(None)
-            continue
-
-        ret_row = ret_20d_usd.filter(pl.col("date") == as_of)
-        if ret_row.is_empty():
-            vals.append(None)
-            continue
-
-        v = ret_row[ticker][0]
-        if v is None:
-            vals.append(None)
-        else:
-            fv = float(v)
-            vals.append(None if np.isnan(fv) else fv)
-
-    return df.with_columns(pl.Series("fx_adjusted_return_20d", vals, dtype=pl.Float64))
+    # Melt wide ret_20d_usd → long, then left-join onto spine
+    ret_long = ret_20d_usd.unpivot(
+        index="date", variable_name="ticker", value_name="fx_adjusted_return_20d"
+    )
+    return df.join(ret_long, on=["ticker", "date"], how="left")

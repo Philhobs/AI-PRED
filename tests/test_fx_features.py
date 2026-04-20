@@ -4,7 +4,6 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import polars as pl
-import pytest
 
 
 def _write_ohlcv(ticker_dir: Path, dates: list[date], prices: list[float]) -> None:
