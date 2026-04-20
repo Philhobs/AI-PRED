@@ -213,4 +213,7 @@ def non_usd_tickers() -> list[str]:
 
 def ticker_currency(symbol: str) -> str:
     """Return the ISO 4217 currency code for a ticker symbol."""
-    return TICKER_CURRENCY[symbol]
+    try:
+        return TICKER_CURRENCY[symbol]
+    except KeyError:
+        raise KeyError(f"Unknown ticker {symbol!r}. Not in registry.") from None

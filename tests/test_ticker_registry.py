@@ -96,7 +96,7 @@ def test_non_usd_tickers():
     """non_usd_tickers() returns only tickers with non-USD currency."""
     from ingestion.ticker_registry import non_usd_tickers, TICKER_CURRENCY
     result = non_usd_tickers()
-    assert len(result) > 0
+    assert len(result) == 36
     for t in result:
         assert TICKER_CURRENCY[t] != "USD", f"{t} is USD but in non_usd_tickers()"
     # NVDA is USD — must not appear
