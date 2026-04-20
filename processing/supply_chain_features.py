@@ -244,7 +244,7 @@ def join_supply_chain_features(
     Args:
         df: Training spine with columns [ticker, date, ...].
         ohlcv_dir: Path to data/raw/financials/ohlcv/ (default: resolved from __file__).
-        earnings_dir: Path to data/raw/fundamentals/earnings/ (default: resolved from __file__).
+        earnings_dir: Path to data/raw/financials/earnings/ (default: resolved from __file__).
         fx_dir: Path to data/raw/financials/fx/ for USD-normalised correlation matrix.
                 When None, correlation uses local-currency returns (backwards-compatible).
 
@@ -287,6 +287,11 @@ def join_supply_chain_features(
             ["date"] + [pl.col(t).pct_change(1).alias(t) for t in ticker_cols]
         )
     else:
+        if fx_dir is not None:
+            _LOG.warning(
+                "[SupplyChain] fx_dir %s does not exist — correlation uses local-currency returns",
+                fx_dir,
+            )
         ret_1d_corr = ret_1d_wide
 
     earnings_path = earnings_dir / "earnings_surprises.parquet"
