@@ -32,8 +32,8 @@ from models.train import (
 )
 from processing.earnings_features import join_earnings_features
 from processing.energy_geo_features import join_energy_geo_features
-from processing.fx_features import join_fx_features
 from processing.fundamental_features import join_fundamentals
+from processing.fx_features import join_fx_features
 from processing.graph_features import join_graph_features
 from processing.insider_features import join_insider_features
 from processing.ownership_features import join_ownership_features
