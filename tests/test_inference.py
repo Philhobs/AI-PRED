@@ -79,7 +79,7 @@ def trained_env(tmp_path_factory):
             continue
         layer_id = LAYER_IDS[layer]
         layer_dir = artifacts_dir / f"layer_{layer_id:02d}_{layer}"
-        train_single_layer(layer_df, layer_dir)
+        train_single_layer(layer_df, layer_dir, label_col="label_return_1y")
 
     # Day 300 of the fixture: has 20+ days price history
     date_str = (datetime.date(2020, 1, 1) + datetime.timedelta(days=300)).isoformat()

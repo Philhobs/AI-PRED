@@ -352,7 +352,7 @@ def train_single_layer(
     df: pl.DataFrame,
     artifacts_dir: Path,
     feature_cols: list[str] = FEATURE_COLS,
-    label_col: str = "label_return_1y",
+    label_col: str = "label_return",
     lgbm_params: dict | None = None,
     rf_params: dict | None = None,
 ) -> None:
@@ -360,7 +360,7 @@ def train_single_layer(
 
     df must have columns: ticker, date, feature_cols..., label_col.
     feature_cols: feature list to train on (default: all 48 FEATURE_COLS).
-    label_col: target column name (default: 'label_return_1y').
+    label_col: target column name (default: 'label_return').
     """
     if len(df) < 50:
         _LOG.warning("Only %d rows — skipping layer (too few samples)", len(df))

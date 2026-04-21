@@ -18,7 +18,7 @@ def _make_layer_df(layer: str, n_rows: int = 100) -> pl.DataFrame:
         features = rng.normal(0, 1, len(FEATURE_COLS)).tolist()
         label = 0.3 * features[0] + rng.normal(0, 0.2)
         row = {"ticker": ticker, "date": _date(2020 + i // 365, 1, i % 12 + 1),
-               "label_return_1y": float(label)}
+               "label_return": float(label)}
         for col, val in zip(FEATURE_COLS, features):
             row[col] = float(val)
         rows.append(row)
