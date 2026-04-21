@@ -284,6 +284,11 @@ def build_training_dataset(
     df = join_fx_features(df, ohlcv_dir=ohlcv_dir)
 
     if horizon_tag is not None:
+        if horizon_tag not in HORIZON_CONFIGS:
+            raise ValueError(
+                f"Unknown horizon_tag {horizon_tag!r}. "
+                f"Valid tags: {list(HORIZON_CONFIGS)}"
+            )
         label_col = f"label_return_{horizon_tag}"
         tier = HORIZON_CONFIGS[horizon_tag]["tier"]
         feat_cols = TIER_FEATURE_COLS[tier]
@@ -343,38 +348,46 @@ def _compute_medians(
 
 # ── Per-layer training ────────────────────────────────────────────────────────
 
-def train_single_layer(df: pl.DataFrame, artifacts_dir: Path) -> None:
+def train_single_layer(
+    df: pl.DataFrame,
+    artifacts_dir: Path,
+    feature_cols: list[str] = FEATURE_COLS,
+    label_col: str = "label_return_1y",
+    lgbm_params: dict | None = None,
+    rf_params: dict | None = None,
+) -> None:
     """Fit the ensemble on df and save all artifacts to artifacts_dir.
 
-    df must have columns: ticker, date, FEATURE_COLS..., label_return_1y.
+    df must have columns: ticker, date, feature_cols..., label_col.
+    feature_cols: feature list to train on (default: all 48 FEATURE_COLS).
+    label_col: target column name (default: 'label_return_1y').
     """
     if len(df) < 50:
         _LOG.warning("Only %d rows — skipping layer (too few samples)", len(df))
         return
 
     artifacts_dir.mkdir(parents=True, exist_ok=True)
-    X = df.select(FEATURE_COLS).to_numpy().astype(float)
-    y = df["label_return_1y"].to_numpy().astype(float)
+    X = df.select(feature_cols).to_numpy().astype(float)
+    y = df[label_col].to_numpy().astype(float)
 
-    medians = _compute_medians(X)
-    X_imp = _impute(X, medians)
+    medians = _compute_medians(X, feature_cols)
+    X_imp = _impute(X, medians, feature_cols)
     scaler = StandardScaler()
     X_sc = scaler.fit_transform(X_imp)
-    X_df = pd.DataFrame(X_imp, columns=FEATURE_COLS)
+    X_df = pd.DataFrame(X_imp, columns=feature_cols)
 
-    lgbm_q10 = lgb.LGBMRegressor(
-        objective="quantile", alpha=0.1, n_estimators=400, learning_rate=0.03,
-        num_leaves=31, min_child_samples=20, random_state=42, verbose=-1,
-    )
-    lgbm_q50 = lgb.LGBMRegressor(
-        objective="quantile", alpha=0.5, n_estimators=400, learning_rate=0.03,
-        num_leaves=31, min_child_samples=20, random_state=42, verbose=-1,
-    )
-    lgbm_q90 = lgb.LGBMRegressor(
-        objective="quantile", alpha=0.9, n_estimators=400, learning_rate=0.03,
-        num_leaves=31, min_child_samples=20, random_state=42, verbose=-1,
-    )
-    rf = RandomForestRegressor(n_estimators=300, max_depth=6, random_state=42, n_jobs=-1)
+    lgbm_base = lgbm_params or {
+        "objective": "quantile", "n_estimators": 400, "learning_rate": 0.03,
+        "num_leaves": 31, "min_child_samples": 20, "random_state": 42, "verbose": -1,
+    }
+    rf_base = rf_params or {
+        "n_estimators": 300, "max_depth": 6, "random_state": 42, "n_jobs": -1,
+    }
+
+    lgbm_q10 = lgb.LGBMRegressor(**{**lgbm_base, "alpha": 0.1})
+    lgbm_q50 = lgb.LGBMRegressor(**{**lgbm_base, "alpha": 0.5})
+    lgbm_q90 = lgb.LGBMRegressor(**{**lgbm_base, "alpha": 0.9})
+    rf = RandomForestRegressor(**rf_base)
     ridge = Ridge(alpha=1.0)
 
     lgbm_q10.fit(X_df, y)
@@ -404,7 +417,7 @@ def train_single_layer(df: pl.DataFrame, artifacts_dir: Path) -> None:
     _pkl(scaler, "feature_scaler.pkl")
 
     (artifacts_dir / "imputation_medians.json").write_text(json.dumps(medians))
-    (artifacts_dir / "feature_names.json").write_text(json.dumps(FEATURE_COLS))
+    (artifacts_dir / "feature_names.json").write_text(json.dumps(feature_cols))
     (artifacts_dir / "ensemble_weights.json").write_text(
         json.dumps({"lgbm": float(weights[0]), "rf": float(weights[1]), "ridge": float(weights[2])})
     )

@@ -243,3 +243,30 @@ def test_build_training_dataset_no_horizon_tag_unchanged(tmp_path):
     for col in FEATURE_COLS:
         assert col in df.columns
     assert "label_return" not in df.columns
+
+
+def test_train_single_layer_saves_tier_feature_names(tmp_path):
+    """When feature_cols is the short tier, feature_names.json contains only those cols."""
+    ohlcv_dir = tmp_path / "financials" / "ohlcv"
+    fund_dir = tmp_path / "financials" / "fundamentals"
+    artifacts_dir = tmp_path / "artifacts"
+    _write_ohlcv_fixture(ohlcv_dir, TICKERS_FIXTURE, N_DAYS)
+    _write_fundamentals_fixture(fund_dir, TICKERS_FIXTURE)
+
+    from models.train import (
+        build_training_dataset, train_single_layer,
+        TIER_FEATURE_COLS,
+    )
+    short_cols = TIER_FEATURE_COLS["short"]
+    df = build_training_dataset(ohlcv_dir, fund_dir, horizon_tag="5d")
+    train_single_layer(
+        df, artifacts_dir,
+        feature_cols=short_cols,
+        label_col="label_return",
+        lgbm_params=_LGBM_TEST,
+        rf_params=_RF_TEST,
+    )
+
+    import json
+    saved = json.loads((artifacts_dir / "feature_names.json").read_text())
+    assert saved == short_cols
