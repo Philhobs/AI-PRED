@@ -1,4 +1,4 @@
-"""Central registry of all 127 AI infrastructure + robotics supply chain tickers.
+"""Central registry of all 141 AI infrastructure + robotics + cybersecurity tickers.
 
 Single source of truth for layer assignments, exchange metadata, and currency.
 CIK_MAP stays in edgar_fundamentals_ingestion.py (backward-compatible).

@@ -38,7 +38,7 @@ def test_train_single_layer_creates_artifacts(tmp_path):
     assert names == FEATURE_COLS
 
 
-def test_train_all_layers_creates_11_dirs(tmp_path, monkeypatch):
+def test_train_all_layers_creates_13_dirs(tmp_path, monkeypatch):
     import models.train as train_module
     from ingestion.ticker_registry import layers
     # Monkeypatch build_training_dataset to return synthetic data per layer.
@@ -80,7 +80,7 @@ def test_train_all_layers_creates_11_dirs(tmp_path, monkeypatch):
 
 
 def test_inference_merges_all_layers(tmp_path, monkeypatch):
-    """run_inference returns one row per ticker across all 11 layers."""
+    """run_inference returns one row per ticker across all 13 layers."""
     import models.train as train_module
     import models.inference as infer_module
     from models.train import train_single_layer, FEATURE_COLS
