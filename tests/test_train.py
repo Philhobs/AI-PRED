@@ -334,3 +334,27 @@ def test_train_all_layers_skips_horizon_with_insufficient_labeled_rows(tmp_path)
     # No horizon_756d dirs should have been created
     horizon_dirs = list(artifacts_dir.glob("layer_*/horizon_756d"))
     assert len(horizon_dirs) == 0, "756d horizon should be skipped due to insufficient data"
+
+
+def test_build_training_dataset_short_horizon_does_not_lose_recent_rows(tmp_path):
+    """5d horizon dataset must NOT be constrained to rows with valid 252d labels.
+
+    With N_DAYS rows and a 5d shift, there should be N_DAYS - 5 labeled rows.
+    With N_DAYS rows and a 252d shift (old bug), there would only be N_DAYS - 252 rows.
+    """
+    ohlcv_dir = tmp_path / "financials" / "ohlcv"
+    fund_dir = tmp_path / "financials" / "fundamentals"
+    n = 400
+    _write_ohlcv_fixture(ohlcv_dir, TICKERS_FIXTURE, n)
+    _write_fundamentals_fixture(fund_dir, TICKERS_FIXTURE)
+
+    from models.train import build_training_dataset
+    df = build_training_dataset(ohlcv_dir, fund_dir, horizon_tag="5d")
+
+    # With 400 rows per ticker and shift=5, each ticker contributes 395 labeled rows.
+    # If the 252d-constraint bug were present, only 148 rows per ticker would survive.
+    rows_per_ticker = df.group_by("ticker").agg(pl.len().alias("n"))["n"].min()
+    assert rows_per_ticker >= n - 5 - 10, (
+        f"Expected ~{n-5} rows per ticker for 5d horizon, got {rows_per_ticker}. "
+        "Likely still constrained by 252d label scope."
+    )

@@ -167,32 +167,58 @@ def build_training_dataset(
     and one prediction horizon.
 
     layer:       if given, filters to tickers in that layer only.
-    horizon_tag: if given, uses multi-horizon labels and returns tier-appropriate
-                 feature columns plus a 'label_return' column. The column
-                 'label_return_{horizon_tag}' is renamed to 'label_return', and rows
-                 where that column is null are dropped.
+    horizon_tag: if given, uses multi-horizon labels scoped to the requested horizon
+                 (avoiding the 252d label constraint). Returns tier-appropriate
+                 feature columns plus a 'label_return' column.
                  If None, returns the full FEATURE_COLS plus 'label_return_1y'
                  (backward-compatible behavior).
     """
-    labels = build_labels(ohlcv_dir)
-    if labels.is_empty():
-        return pl.DataFrame()
-
     layer_tickers: list[str] = tickers_in_layer(layer) if layer is not None else []
 
-    # Filter to layer tickers if specified
-    if layer is not None:
-        labels = labels.filter(pl.col("ticker").is_in(layer_tickers))
+    # ── Label scope: determines which rows survive the inner join ─────────────
+    if horizon_tag is not None:
+        if horizon_tag not in HORIZON_CONFIGS:
+            raise ValueError(
+                f"Unknown horizon_tag {horizon_tag!r}. "
+                f"Valid tags: {list(HORIZON_CONFIGS)}"
+            )
+        label_col = f"label_return_{horizon_tag}"
+        tier = HORIZON_CONFIGS[horizon_tag]["tier"]
+        feat_cols = TIER_FEATURE_COLS[tier]
+
+        multi_labels = build_multi_horizon_labels(
+            ohlcv_dir, horizons={horizon_tag: HORIZON_CONFIGS[horizon_tag]["shift"]}
+        )
+        if layer is not None:
+            multi_labels = multi_labels.filter(pl.col("ticker").is_in(layer_tickers))
+        label_scope = (
+            multi_labels
+            .filter(pl.col(label_col).is_not_null())
+            .select(["ticker", "date", label_col])
+        )
+    else:
+        label_col = "label_return_1y"
+        feat_cols = FEATURE_COLS
+        labels = build_labels(ohlcv_dir)
         if labels.is_empty():
             return pl.DataFrame()
+        if layer is not None:
+            labels = labels.filter(pl.col("ticker").is_in(layer_tickers))
+            if labels.is_empty():
+                return pl.DataFrame()
+        label_scope = labels
 
+    if label_scope.is_empty():
+        return pl.DataFrame()
+
+    # ── Price features ────────────────────────────────────────────────────────
     price_df = build_price_features(ohlcv_dir)
     if layer is not None:
         price_df = price_df.filter(pl.col("ticker").is_in(layer_tickers))
     price_features = price_df.select(["ticker", "date"] + PRICE_FEATURE_COLS)
 
-    # Inner join: keep only rows with complete 252-day forward labels
-    df = price_features.join(labels, on=["ticker", "date"], how="inner")
+    # Inner join: keep only rows with a valid label for this horizon
+    df = price_features.join(label_scope, on=["ticker", "date"], how="inner")
 
     # Backward asof join: attach most recent quarterly fundamentals per row
     df = join_fundamentals(df, fundamentals_dir)
@@ -284,30 +310,9 @@ def build_training_dataset(
     df = join_fx_features(df, ohlcv_dir=ohlcv_dir)
 
     if horizon_tag is not None:
-        if horizon_tag not in HORIZON_CONFIGS:
-            raise ValueError(
-                f"Unknown horizon_tag {horizon_tag!r}. "
-                f"Valid tags: {list(HORIZON_CONFIGS)}"
-            )
-        label_col = f"label_return_{horizon_tag}"
-        tier = HORIZON_CONFIGS[horizon_tag]["tier"]
-        feat_cols = TIER_FEATURE_COLS[tier]
-
-        # Join multi-horizon labels (wide: one column per horizon)
-        multi_labels = build_multi_horizon_labels(
-            ohlcv_dir, horizons={horizon_tag: HORIZON_CONFIGS[horizon_tag]["shift"]}
-        )
-        if layer is not None:
-            multi_labels = multi_labels.filter(pl.col("ticker").is_in(layer_tickers))
-
-        df = df.join(
-            multi_labels.select(["ticker", "date", label_col]),
-            on=["ticker", "date"],
-            how="inner",
-        ).filter(pl.col(label_col).is_not_null()).rename({label_col: "label_return"})
-
         return (
-            df.select(["ticker", "date"] + feat_cols + ["label_return"])
+            df.select(["ticker", "date"] + feat_cols + [label_col])
+            .rename({label_col: "label_return"})
             .sort(["date", "ticker"])
         )
 
