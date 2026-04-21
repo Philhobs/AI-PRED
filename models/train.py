@@ -178,9 +178,10 @@ def build_training_dataset(
     if labels.is_empty():
         return pl.DataFrame()
 
+    layer_tickers: list[str] = tickers_in_layer(layer) if layer is not None else []
+
     # Filter to layer tickers if specified
     if layer is not None:
-        layer_tickers = tickers_in_layer(layer)
         labels = labels.filter(pl.col("ticker").is_in(layer_tickers))
         if labels.is_empty():
             return pl.DataFrame()
@@ -288,7 +289,9 @@ def build_training_dataset(
         feat_cols = TIER_FEATURE_COLS[tier]
 
         # Join multi-horizon labels (wide: one column per horizon)
-        multi_labels = build_multi_horizon_labels(ohlcv_dir)
+        multi_labels = build_multi_horizon_labels(
+            ohlcv_dir, horizons={horizon_tag: HORIZON_CONFIGS[horizon_tag]["shift"]}
+        )
         if layer is not None:
             multi_labels = multi_labels.filter(pl.col("ticker").is_in(layer_tickers))
 

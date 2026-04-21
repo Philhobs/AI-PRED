@@ -242,3 +242,4 @@ def test_build_training_dataset_no_horizon_tag_unchanged(tmp_path):
     assert "label_return_1y" in df.columns
     for col in FEATURE_COLS:
         assert col in df.columns
+    assert "label_return" not in df.columns
