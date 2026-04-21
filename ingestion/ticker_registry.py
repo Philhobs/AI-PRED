@@ -158,6 +158,22 @@ TICKERS_INFO: list[TickerInfo] = [
     TickerInfo("6954.T",    "robotics",       "T",  "JPY", "JP"),
     TickerInfo("6506.T",    "robotics",       "T",  "JPY", "JP"),
     TickerInfo("6861.T",    "robotics",       "T",  "JPY", "JP"),
+    # ── Layer 12: AI Cybersecurity — Pure Plays (5) ───────────────────────────────
+    TickerInfo("CRWD",   "cyber_pureplay", "US", "USD", "US"),
+    TickerInfo("ZS",     "cyber_pureplay", "US", "USD", "US"),
+    TickerInfo("S",      "cyber_pureplay", "US", "USD", "US"),
+    TickerInfo("DARK.L", "cyber_pureplay", "L",  "GBP", "GB"),
+    TickerInfo("VRNS",   "cyber_pureplay", "US", "USD", "US"),
+    # ── Layer 13: AI Cybersecurity — Platform Vendors (9) ─────────────────────────
+    TickerInfo("PANW",   "cyber_platform", "US", "USD", "US"),
+    TickerInfo("FTNT",   "cyber_platform", "US", "USD", "US"),
+    TickerInfo("CHKP",   "cyber_platform", "US", "USD", "IL"),
+    TickerInfo("CYBR",   "cyber_platform", "US", "USD", "IL"),
+    TickerInfo("TENB",   "cyber_platform", "US", "USD", "US"),
+    TickerInfo("QLYS",   "cyber_platform", "US", "USD", "US"),
+    TickerInfo("OKTA",   "cyber_platform", "US", "USD", "US"),
+    TickerInfo("AKAM",   "cyber_platform", "US", "USD", "US"),
+    TickerInfo("RPD",    "cyber_platform", "US", "USD", "US"),
 ]
 
 # ── Layer metadata ──────────────────────────────────────────────────────────
@@ -165,7 +181,7 @@ TICKERS_INFO: list[TickerInfo] = [
 LAYER_IDS: dict[str, int] = {
     "cloud": 1, "compute": 2, "semi_equipment": 3, "networking": 4,
     "servers": 5, "datacenter": 6, "power": 7, "cooling": 8,
-    "grid": 9, "metals": 10, "robotics": 11,
+    "grid": 9, "metals": 10, "robotics": 11, "cyber_pureplay": 12, "cyber_platform": 13,
 }
 
 LAYER_LABELS: dict[str, str] = {
@@ -180,6 +196,8 @@ LAYER_LABELS: dict[str, str] = {
     "grid":           "Grid / Construction / Electrical",
     "metals":         "Metals / Materials",
     "robotics":       "Robotics / Automation / Industrial AI",
+    "cyber_pureplay": "AI Cybersecurity — Pure Plays",
+    "cyber_platform": "AI Cybersecurity — Platform Vendors",
 }
 
 # ── Generated lookups (single source of truth: TICKERS_INFO) ───────────────

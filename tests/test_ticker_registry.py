@@ -3,8 +3,8 @@
 
 def test_ticker_count():
     from ingestion.ticker_registry import TICKERS, TICKER_LAYERS
-    assert len(TICKERS) == 127
-    assert len(TICKER_LAYERS) == 127
+    assert len(TICKERS) == 141       # 127 + 5 cyber_pureplay + 9 cyber_platform
+    assert len(TICKER_LAYERS) == 141
 
 
 def test_all_layers_present():
@@ -17,7 +17,7 @@ def test_tickers_in_layer():
     from ingestion.ticker_registry import tickers_in_layer
     cloud = tickers_in_layer("cloud")
     assert "MSFT" in cloud and "AMZN" in cloud
-    assert len(cloud) == 9  # was 6; +SAP.DE, CAP.PA, OVH.PA
+    assert len(cloud) == 9
 
 
 def test_hyperscalers_are_cloud():
@@ -26,23 +26,47 @@ def test_hyperscalers_are_cloud():
         assert TICKER_LAYERS[t] == "cloud"
 
 
-def test_layers_returns_11():
+def test_layers_returns_13():
     from ingestion.ticker_registry import layers
-    assert len(layers()) == 11
+    assert len(layers()) == 13
 
 
 def test_layers_order():
     from ingestion.ticker_registry import layers
     result = layers()
     assert result[0] == "cloud"
-    assert result[-1] == "robotics"  # robotics=11, metals=10
+    assert result[-3] == "robotics"
+    assert result[-2] == "cyber_pureplay"
+    assert result[-1] == "cyber_platform"
+
+
+def test_cyber_pureplay_layer_populated():
+    from ingestion.ticker_registry import tickers_in_layer, LAYER_IDS
+    assert "cyber_pureplay" in LAYER_IDS
+    assert LAYER_IDS["cyber_pureplay"] == 12
+    tickers = tickers_in_layer("cyber_pureplay")
+    assert len(tickers) == 5
+    assert "CRWD" in tickers
+    assert "ZS" in tickers
+    assert "S" in tickers
+    assert "DARK.L" in tickers
+    assert "VRNS" in tickers
+
+
+def test_cyber_platform_layer_populated():
+    from ingestion.ticker_registry import tickers_in_layer, LAYER_IDS
+    assert "cyber_platform" in LAYER_IDS
+    assert LAYER_IDS["cyber_platform"] == 13
+    tickers = tickers_in_layer("cyber_platform")
+    assert len(tickers) == 9
+    for expected in ["PANW", "FTNT", "CHKP", "CYBR", "TENB", "QLYS", "OKTA", "AKAM", "RPD"]:
+        assert expected in tickers, f"{expected} missing from cyber_platform"
 
 
 def test_cik_map_covers_domestic_tickers():
     """CIK_MAP must have entries for original 83 domestic US tickers."""
     from ingestion.edgar_fundamentals_ingestion import CIK_MAP
     from ingestion.ticker_registry import TICKER_EXCHANGE
-    # Only US-listed tickers could have SEC CIK entries
     us_listed = [t for t in [
         "MSFT", "AMZN", "GOOGL", "META", "ORCL", "IBM",
         "NVDA", "AMD", "AVGO", "MRVL", "TSM", "ASML", "INTC", "ARM",
@@ -58,17 +82,13 @@ def test_cik_map_covers_domestic_tickers():
         "PWR", "MTZ", "EME", "MYR", "IESC", "AGX",
         "FCX", "SCCO", "AA", "NUE", "STLD", "MP", "UUUU", "ECL",
     ] if TICKER_EXCHANGE.get(t, "US") == "US"]
-    # Foreign private issuers / non-SEC-registrants — excluded by design
     foreign = {"TSM", "ASML", "ARM", "NOK", "IREN", "STM", "ERIC"}
     domestic = [t for t in us_listed if t not in foreign]
     missing = [t for t in domestic if t not in CIK_MAP]
     assert missing == [], f"Missing CIKs for: {missing}"
 
 
-# ── New tests ──────────────────────────────────────────────────────────────────
-
 def test_tickerinfo_fields_complete():
-    """Every TickerInfo entry has non-empty fields and no duplicate symbols."""
     from ingestion.ticker_registry import TICKERS_INFO
     for t in TICKERS_INFO:
         assert t.symbol,   f"Empty symbol in entry: {t}"
@@ -81,7 +101,6 @@ def test_tickerinfo_fields_complete():
 
 
 def test_robotics_layer_populated():
-    """robotics layer exists in LAYER_IDS and contains expected tickers."""
     from ingestion.ticker_registry import tickers_in_layer, LAYER_IDS
     assert "robotics" in LAYER_IDS
     assert LAYER_IDS["robotics"] == 11
@@ -93,13 +112,11 @@ def test_robotics_layer_populated():
 
 
 def test_non_usd_tickers():
-    """non_usd_tickers() returns only tickers with non-USD currency."""
     from ingestion.ticker_registry import non_usd_tickers, TICKER_CURRENCY
     result = non_usd_tickers()
-    assert len(result) == 36
+    assert len(result) == 37    # was 36; +DARK.L (GBP)
     for t in result:
         assert TICKER_CURRENCY[t] != "USD", f"{t} is USD but in non_usd_tickers()"
-    # NVDA is USD — must not appear
     assert "NVDA" not in result
-    # ABBN.SW is CHF — must appear
     assert "ABBN.SW" in result
+    assert "DARK.L" in result

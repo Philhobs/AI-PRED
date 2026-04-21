@@ -71,10 +71,10 @@ def test_train_all_layers_creates_11_dirs(tmp_path, monkeypatch):
         artifacts_dir=tmp_path / "artifacts",
         horizon_tag="5d",
     )
-    # 11 layer directories should exist (layers 1–11 including robotics),
+    # 13 layer directories should exist (layers 1–13 including cyber layers),
     # each containing a horizon_5d/ subdirectory.
     layer_dirs = list((tmp_path / "artifacts").glob("layer_*"))
-    assert len(layer_dirs) == 11
+    assert len(layer_dirs) == 13
     for layer_dir in layer_dirs:
         assert (layer_dir / "horizon_5d").exists(), f"horizon_5d/ missing under {layer_dir}"
 
