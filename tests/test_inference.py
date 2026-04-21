@@ -71,9 +71,8 @@ def trained_env(tmp_path_factory):
     _write_fundamentals_fixture(fund_dir, TICKERS_FIXTURE)
 
     # Train per-layer models. Only cloud and compute layers have data for TICKERS_FIXTURE.
-    from models.train import train_single_layer, build_training_dataset, FEATURE_COLS
+    from models.train import train_single_layer, build_training_dataset
     from ingestion.ticker_registry import LAYER_IDS, tickers_in_layer, layers as all_layers
-    import numpy as np
 
     df_all = build_training_dataset(ohlcv_dir, fund_dir)
 
@@ -166,7 +165,7 @@ def test_run_inference_horizon_column_present(trained_env_multi):
     )
 
     assert "horizon" in result.columns
-    assert result["horizon"].unique().to_list() == ["252d"]
+    assert set(result["horizon"].unique().to_list()) == {"252d"}
 
 
 def test_run_inference_returns_correct_schema(trained_env):

@@ -28,7 +28,7 @@ from models.train import (
     FEATURE_COLS, INSIDER_FEATURE_COLS, SENTIMENT_FEATURE_COLS,
     SHORT_INTEREST_FEATURE_COLS, EARNINGS_FEATURE_COLS, GRAPH_FEATURE_COLS,
     OWNERSHIP_FEATURE_COLS, ENERGY_FEATURE_COLS, SUPPLY_CHAIN_FEATURE_COLS,
-    FX_FEATURE_COLS,
+    FX_FEATURE_COLS, _impute,
 )
 from processing.earnings_features import join_earnings_features
 from processing.energy_geo_features import join_energy_geo_features
@@ -46,19 +46,6 @@ from processing.supply_chain_features import join_supply_chain_features
 def _load_pickle(path: Path):
     with open(path, "rb") as f:
         return pickle.load(f)
-
-
-def _impute(
-    X: np.ndarray,
-    medians: dict[str, float],
-    feature_cols: list[str] = FEATURE_COLS,
-) -> np.ndarray:
-    X = X.copy()
-    for i, name in enumerate(feature_cols):
-        mask = np.isnan(X[:, i])
-        if mask.any():
-            X[mask, i] = medians.get(name, 0.0)
-    return X
 
 
 def _build_feature_df(
@@ -156,6 +143,7 @@ def _predict_layer(
         horizon_dir = layer_dir
 
     if not (horizon_dir / "feature_names.json").exists():
+        _LOG.debug("No feature_names.json for layer %s horizon %s — skipping", layer, horizon_tag)
         return None
 
     feature_names_saved: list[str] = json.loads(
@@ -165,6 +153,7 @@ def _predict_layer(
     layer_tickers = tickers_in_layer(layer)
     layer_df = feature_df.filter(pl.col("ticker").is_in(layer_tickers))
     if layer_df.is_empty():
+        _LOG.debug("No tickers in layer %s for horizon %s — skipping", layer, horizon_tag)
         return None
 
     tickers = layer_df["ticker"].to_list()
