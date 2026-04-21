@@ -442,6 +442,11 @@ def train_all_layers(
     Horizons are skipped when a layer has fewer than 100 labeled rows.
     Artifacts are saved to: artifacts_dir/layer_{id}_{name}/horizon_{tag}/
     """
+    if horizon_tag is not None and horizon_tag not in HORIZON_CONFIGS:
+        raise ValueError(
+            f"Unknown horizon_tag {horizon_tag!r}. Valid: {list(HORIZON_CONFIGS)}"
+        )
+
     horizons_to_train = [horizon_tag] if horizon_tag else list(HORIZON_CONFIGS.keys())
 
     for h_tag in horizons_to_train:
@@ -524,10 +529,11 @@ def train(
         "n_jobs": -1, "random_state": 42,
     }
     lgbm_base = {**lgbm_defaults, **(lgbm_params or {})}
-    rf_base = rf_params or {
+    rf_defaults = {
         "n_estimators": 300, "max_features": "sqrt",
         "min_samples_leaf": 5, "n_jobs": -1, "random_state": 42,
     }
+    rf_base = {**rf_defaults, **(rf_params or {})}
 
     # ── Walk-forward CV: collect validation predictions for NNLS ─────────────
     # 3 split points: train on dates[0:split], validate on dates[split:split+val_window]

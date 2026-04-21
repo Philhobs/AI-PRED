@@ -299,14 +299,20 @@ def test_train_all_layers_creates_horizon_artifact_dirs(tmp_path):
         lgbm_params=_LGBM_TEST, rf_params=_RF_TEST,
     )
 
-    # At least one layer dir should have been trained
     layer_dirs = list(artifacts_dir.glob("layer_*"))
-    assert len(layer_dirs) > 0, "No layer dirs created"
+    # TICKERS_FIXTURE belongs to "cloud" and/or "compute" layers — at least 1 trains
+    assert len(layer_dirs) >= 1, "Expected at least one layer dir to be created"
     for layer_dir in layer_dirs:
         horizon_dir = layer_dir / "horizon_5d"
         assert horizon_dir.exists(), f"horizon_5d/ missing under {layer_dir}"
         assert (horizon_dir / "feature_names.json").exists()
         assert (horizon_dir / "lgbm_q50.pkl").exists()
+    # All trained layers must have the horizon subdir — none should use the flat layout
+    flat_artifacts = [
+        d for d in layer_dirs
+        if (d / "feature_names.json").exists()  # flat layout artifact at layer root
+    ]
+    assert len(flat_artifacts) == 0, "Found flat-layout artifacts; expected horizon_{tag}/ subdirs"
 
 
 def test_train_all_layers_skips_horizon_with_insufficient_labeled_rows(tmp_path):
