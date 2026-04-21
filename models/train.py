@@ -110,6 +110,38 @@ FEATURE_COLS = (
     + SUPPLY_CHAIN_FEATURE_COLS + FX_FEATURE_COLS  # 47 → 48 features total
 )
 
+# ── Horizon registry ──────────────────────────────────────────────────────────
+HORIZON_CONFIGS: dict[str, dict] = {
+    "5d":   {"shift": 5,    "tier": "short"},
+    "20d":  {"shift": 20,   "tier": "short"},
+    "65d":  {"shift": 65,   "tier": "medium"},
+    "252d": {"shift": 252,  "tier": "medium"},
+    "756d": {"shift": 756,  "tier": "long"},
+    "1260d":{"shift": 1260, "tier": "long"},
+    "2520d":{"shift": 2520, "tier": "long"},
+    "5040d":{"shift": 5040, "tier": "long"},
+}
+
+TIER_FEATURE_COLS: dict[str, list[str]] = {
+    "short": (
+        PRICE_FEATURE_COLS
+        + SENTIMENT_FEATURE_COLS
+        + INSIDER_FEATURE_COLS
+        + SHORT_INTEREST_FEATURE_COLS
+    ),
+    "medium": FEATURE_COLS,
+    "long": (
+        PRICE_FEATURE_COLS
+        + FUND_FEATURE_COLS
+        + EARNINGS_FEATURE_COLS
+        + GRAPH_FEATURE_COLS
+        + OWNERSHIP_FEATURE_COLS
+        + ENERGY_FEATURE_COLS
+        + SUPPLY_CHAIN_FEATURE_COLS
+        + FX_FEATURE_COLS
+    ),
+}
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -252,21 +284,28 @@ def build_training_dataset(
 
 # ── Imputation helpers ────────────────────────────────────────────────────────
 
-def _impute(X: np.ndarray, medians: dict[str, float]) -> np.ndarray:
+def _impute(
+    X: np.ndarray,
+    medians: dict[str, float],
+    feature_cols: list[str] = FEATURE_COLS,
+) -> np.ndarray:
     """Fill NaN values column-wise using pre-computed per-feature medians."""
     X = X.copy()
-    for i, name in enumerate(FEATURE_COLS):
+    for i, name in enumerate(feature_cols):
         mask = np.isnan(X[:, i])
         if mask.any():
             X[mask, i] = medians.get(name, 0.0)
     return X
 
 
-def _compute_medians(X: np.ndarray) -> dict[str, float]:
-    """Compute per-feature nanmedian over the training set. Never uses validation data.
-    Falls back to 0.0 for columns that are entirely NaN (e.g. fundamentals not yet available)."""
+def _compute_medians(
+    X: np.ndarray,
+    feature_cols: list[str] = FEATURE_COLS,
+) -> dict[str, float]:
+    """Compute per-feature nanmedian over the training set.
+    Falls back to 0.0 for columns that are entirely NaN."""
     result = {}
-    for i, name in enumerate(FEATURE_COLS):
+    for i, name in enumerate(feature_cols):
         v = np.nanmedian(X[:, i])
         result[name] = 0.0 if np.isnan(v) else float(v)
     return result

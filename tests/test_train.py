@@ -160,4 +160,37 @@ def test_train_raises_on_insufficient_data(tmp_path):
 def test_feature_cols_contains_fx():
     from models.train import FEATURE_COLS, FX_FEATURE_COLS
     assert all(c in FEATURE_COLS for c in FX_FEATURE_COLS)
-    assert len(FEATURE_COLS) == 48
+
+
+def test_tier_feature_cols_medium_equals_feature_cols():
+    """TIER_FEATURE_COLS['medium'] must be identical to FEATURE_COLS (48 features)."""
+    from models.train import FEATURE_COLS, TIER_FEATURE_COLS
+    assert TIER_FEATURE_COLS["medium"] == FEATURE_COLS
+
+
+def test_horizon_configs_has_all_eight_horizons():
+    """HORIZON_CONFIGS contains exactly the 8 expected horizon tags."""
+    from models.train import HORIZON_CONFIGS
+    expected = {"5d", "20d", "65d", "252d", "756d", "1260d", "2520d", "5040d"}
+    assert set(HORIZON_CONFIGS.keys()) == expected
+
+
+def test_horizon_configs_tiers_are_valid():
+    """Every HORIZON_CONFIGS entry has a tier that exists in TIER_FEATURE_COLS."""
+    from models.train import HORIZON_CONFIGS, TIER_FEATURE_COLS
+    for tag, cfg in HORIZON_CONFIGS.items():
+        assert cfg["tier"] in TIER_FEATURE_COLS, f"Invalid tier for horizon {tag}"
+
+
+def test_impute_uses_feature_cols_param(tmp_path):
+    """_impute fills NaNs only for the provided feature_cols, not global FEATURE_COLS."""
+    from models.train import _impute
+    import numpy as np
+
+    feature_cols = ["a", "b"]
+    X = np.array([[1.0, np.nan], [np.nan, 3.0]])
+    medians = {"a": 10.0, "b": 20.0}
+    result = _impute(X, medians, feature_cols=feature_cols)
+
+    assert result[0, 1] == pytest.approx(20.0)
+    assert result[1, 0] == pytest.approx(10.0)
