@@ -270,3 +270,15 @@ def test_train_single_layer_saves_tier_feature_names(tmp_path):
     import json
     saved = json.loads((artifacts_dir / "feature_names.json").read_text())
     assert saved == short_cols
+
+
+def test_build_training_dataset_invalid_horizon_tag_raises(tmp_path):
+    """build_training_dataset raises ValueError for unknown horizon_tag."""
+    ohlcv_dir = tmp_path / "financials" / "ohlcv"
+    fund_dir = tmp_path / "financials" / "fundamentals"
+    _write_ohlcv_fixture(ohlcv_dir, TICKERS_FIXTURE, N_DAYS)
+    _write_fundamentals_fixture(fund_dir, TICKERS_FIXTURE)
+
+    from models.train import build_training_dataset
+    with pytest.raises(ValueError, match="Unknown horizon_tag"):
+        build_training_dataset(ohlcv_dir, fund_dir, horizon_tag="99y")

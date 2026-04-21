@@ -376,18 +376,19 @@ def train_single_layer(
     X_sc = scaler.fit_transform(X_imp)
     X_df = pd.DataFrame(X_imp, columns=feature_cols)
 
-    lgbm_base = lgbm_params or {
+    lgbm_defaults = {
         "objective": "quantile", "n_estimators": 400, "learning_rate": 0.03,
         "num_leaves": 31, "min_child_samples": 20, "random_state": 42, "verbose": -1,
     }
-    rf_base = rf_params or {
+    lgbm_merged = {**lgbm_defaults, **(lgbm_params or {})}
+    rf_defaults = {
         "n_estimators": 300, "max_depth": 6, "random_state": 42, "n_jobs": -1,
     }
 
-    lgbm_q10 = lgb.LGBMRegressor(**{**lgbm_base, "alpha": 0.1})
-    lgbm_q50 = lgb.LGBMRegressor(**{**lgbm_base, "alpha": 0.5})
-    lgbm_q90 = lgb.LGBMRegressor(**{**lgbm_base, "alpha": 0.9})
-    rf = RandomForestRegressor(**rf_base)
+    lgbm_q10 = lgb.LGBMRegressor(**{**lgbm_merged, "alpha": 0.1})
+    lgbm_q50 = lgb.LGBMRegressor(**{**lgbm_merged, "alpha": 0.5})
+    lgbm_q90 = lgb.LGBMRegressor(**{**lgbm_merged, "alpha": 0.9})
+    rf = RandomForestRegressor(**{**rf_defaults, **(rf_params or {})})
     ridge = Ridge(alpha=1.0)
 
     lgbm_q10.fit(X_df, y)
