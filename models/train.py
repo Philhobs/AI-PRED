@@ -432,19 +432,50 @@ def train_all_layers(
     ohlcv_dir: Path,
     fundamentals_dir: Path,
     artifacts_dir: Path,
+    horizon_tag: str | None = None,
+    lgbm_params: dict | None = None,
+    rf_params: dict | None = None,
 ) -> None:
-    """Train one ensemble per supply chain layer and save artifacts."""
-    for layer in all_layers():
-        layer_id = LAYER_IDS[layer]
-        layer_dir = artifacts_dir / f"layer_{layer_id:02d}_{layer}"
-        _LOG.info("Training layer %02d: %s", layer_id, layer)
+    """Train one ensemble per (horizon, layer) pair and save artifacts.
 
-        df = build_training_dataset(ohlcv_dir, fundamentals_dir, layer=layer)
-        if df.is_empty():
-            _LOG.warning("No data for layer %s — skipping", layer)
-            continue
+    horizon_tag: if given, trains only that horizon. If None, trains all 8 horizons.
+    Horizons are skipped when a layer has fewer than 100 labeled rows.
+    Artifacts are saved to: artifacts_dir/layer_{id}_{name}/horizon_{tag}/
+    """
+    horizons_to_train = [horizon_tag] if horizon_tag else list(HORIZON_CONFIGS.keys())
 
-        train_single_layer(df, layer_dir)
+    for h_tag in horizons_to_train:
+        tier = HORIZON_CONFIGS[h_tag]["tier"]
+        feat_cols = TIER_FEATURE_COLS[tier]
+        _LOG.info("Training horizon %s (%s tier, %d features)", h_tag, tier, len(feat_cols))
+
+        for layer in all_layers():
+            layer_id = LAYER_IDS[layer]
+            horizon_dir = artifacts_dir / f"layer_{layer_id:02d}_{layer}" / f"horizon_{h_tag}"
+
+            df = build_training_dataset(
+                ohlcv_dir, fundamentals_dir, layer=layer, horizon_tag=h_tag
+            )
+            if df.is_empty():
+                _LOG.warning("No data for layer %s horizon %s — skipping", layer, h_tag)
+                continue
+
+            n_labeled = len(df)
+            if n_labeled < 100:
+                _LOG.warning(
+                    "Horizon %s layer %s: only %d labeled rows, need ≥100 — skipping",
+                    h_tag, layer, n_labeled,
+                )
+                continue
+
+            _LOG.info("  layer %-20s  %d rows → %s", layer, n_labeled, horizon_dir)
+            train_single_layer(
+                df, horizon_dir,
+                feature_cols=feat_cols,
+                label_col="label_return",
+                lgbm_params=lgbm_params,
+                rf_params=rf_params,
+            )
 
 
 # ── Main training entry point ─────────────────────────────────────────────────
@@ -487,11 +518,12 @@ def train(
     y_all = df["label_return_1y"].to_numpy().astype(float)
 
     # Default production hyperparameters
-    lgbm_base = lgbm_params or {
+    lgbm_defaults = {
         "n_estimators": 500, "learning_rate": 0.05,
         "num_leaves": 31, "min_child_samples": 20,
         "n_jobs": -1, "random_state": 42,
     }
+    lgbm_base = {**lgbm_defaults, **(lgbm_params or {})}
     rf_base = rf_params or {
         "n_estimators": 300, "max_features": "sqrt",
         "min_samples_leaf": 5, "n_jobs": -1, "random_state": 42,
@@ -699,17 +731,23 @@ def train(
 
 
 if __name__ == "__main__":
+    import argparse
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+    parser = argparse.ArgumentParser(description="Train per-layer horizon models.")
+    parser.add_argument(
+        "--horizon", default=None,
+        help="Single horizon tag to train, e.g. '5d' or '252d'. Default: all 8 horizons.",
+    )
+    args = parser.parse_args()
 
     project_root = Path(__file__).parent.parent
     ohlcv_dir        = project_root / "data" / "raw" / "financials" / "ohlcv"
     fundamentals_dir = project_root / "data" / "raw" / "financials" / "fundamentals"
     artifacts_dir    = project_root / "models" / "artifacts"
 
-    _LOG.info("Training global ensemble with walk-forward CV...")
-    train(ohlcv_dir, fundamentals_dir, artifacts_dir)
-
-    _LOG.info("Training per-layer ensembles for 11 supply chain layers...")
-    train_all_layers(ohlcv_dir, fundamentals_dir, artifacts_dir)
+    label = args.horizon or "all"
+    _LOG.info("Training per-layer ensembles for horizon(s): %s", label)
+    train_all_layers(ohlcv_dir, fundamentals_dir, artifacts_dir, horizon_tag=args.horizon)
     _LOG.info("[Train] All layer artifacts → %s", artifacts_dir)
     print(f"[Train] Artifacts → {artifacts_dir}")

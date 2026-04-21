@@ -41,21 +41,42 @@ def test_train_single_layer_creates_artifacts(tmp_path):
 def test_train_all_layers_creates_11_dirs(tmp_path, monkeypatch):
     import models.train as train_module
     from ingestion.ticker_registry import layers
-    # Monkeypatch build_training_dataset to return synthetic data per layer
-    def fake_build(ohlcv_dir, fundamentals_dir, layer=None):
+    # Monkeypatch build_training_dataset to return synthetic data per layer.
+    # Must accept horizon_tag since train_all_layers now passes it.
+    # Return 120 rows (≥100 coverage gate) with a 'label_return' column.
+    def fake_build(ohlcv_dir, fundamentals_dir, layer=None, horizon_tag=None):
         if layer is None:
             return pl.DataFrame()
-        return _make_layer_df(layer, n_rows=80)
+        from models.train import FEATURE_COLS
+        rng = np.random.default_rng(42)
+        from ingestion.ticker_registry import tickers_in_layer
+        tickers = tickers_in_layer(layer)
+        rows = []
+        for i in range(120):
+            ticker = tickers[i % len(tickers)]
+            features = rng.normal(0, 1, len(FEATURE_COLS)).tolist()
+            label = float(0.3 * features[0] + rng.normal(0, 0.2))
+            row = {"ticker": ticker,
+                   "date": _date(2020 + i // 365, 1, i % 12 + 1),
+                   "label_return": label}
+            for col, val in zip(FEATURE_COLS, features):
+                row[col] = float(val)
+            rows.append(row)
+        return pl.DataFrame(rows).with_columns(pl.col("date").cast(pl.Date))
 
     monkeypatch.setattr(train_module, "build_training_dataset", fake_build)
     train_module.train_all_layers(
         ohlcv_dir=tmp_path / "ohlcv",
         fundamentals_dir=tmp_path / "fundamentals",
         artifacts_dir=tmp_path / "artifacts",
+        horizon_tag="5d",
     )
-    # 11 layer directories should exist (layers 1–11 including robotics)
+    # 11 layer directories should exist (layers 1–11 including robotics),
+    # each containing a horizon_5d/ subdirectory.
     layer_dirs = list((tmp_path / "artifacts").glob("layer_*"))
     assert len(layer_dirs) == 11
+    for layer_dir in layer_dirs:
+        assert (layer_dir / "horizon_5d").exists(), f"horizon_5d/ missing under {layer_dir}"
 
 
 def test_inference_merges_all_layers(tmp_path, monkeypatch):

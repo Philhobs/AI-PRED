@@ -282,3 +282,49 @@ def test_build_training_dataset_invalid_horizon_tag_raises(tmp_path):
     from models.train import build_training_dataset
     with pytest.raises(ValueError, match="Unknown horizon_tag"):
         build_training_dataset(ohlcv_dir, fund_dir, horizon_tag="99y")
+
+
+def test_train_all_layers_creates_horizon_artifact_dirs(tmp_path):
+    """train_all_layers creates horizon_5d/ subdir under each trained layer dir."""
+    ohlcv_dir = tmp_path / "financials" / "ohlcv"
+    fund_dir = tmp_path / "financials" / "fundamentals"
+    artifacts_dir = tmp_path / "artifacts"
+    _write_ohlcv_fixture(ohlcv_dir, TICKERS_FIXTURE, N_DAYS)
+    _write_fundamentals_fixture(fund_dir, TICKERS_FIXTURE)
+
+    from models.train import train_all_layers
+    train_all_layers(
+        ohlcv_dir, fund_dir, artifacts_dir,
+        horizon_tag="5d",
+        lgbm_params=_LGBM_TEST, rf_params=_RF_TEST,
+    )
+
+    # At least one layer dir should have been trained
+    layer_dirs = list(artifacts_dir.glob("layer_*"))
+    assert len(layer_dirs) > 0, "No layer dirs created"
+    for layer_dir in layer_dirs:
+        horizon_dir = layer_dir / "horizon_5d"
+        assert horizon_dir.exists(), f"horizon_5d/ missing under {layer_dir}"
+        assert (horizon_dir / "feature_names.json").exists()
+        assert (horizon_dir / "lgbm_q50.pkl").exists()
+
+
+def test_train_all_layers_skips_horizon_with_insufficient_labeled_rows(tmp_path):
+    """With only 300 rows, 756d horizon is skipped (0 labeled rows < 100 threshold)."""
+    ohlcv_dir = tmp_path / "financials" / "ohlcv"
+    fund_dir = tmp_path / "financials" / "fundamentals"
+    artifacts_dir = tmp_path / "artifacts"
+    # 300 rows < 756 shift → 0 labeled rows for 756d
+    _write_ohlcv_fixture(ohlcv_dir, TICKERS_FIXTURE, 300)
+    _write_fundamentals_fixture(fund_dir, TICKERS_FIXTURE)
+
+    from models.train import train_all_layers
+    train_all_layers(
+        ohlcv_dir, fund_dir, artifacts_dir,
+        horizon_tag="756d",
+        lgbm_params=_LGBM_TEST, rf_params=_RF_TEST,
+    )
+
+    # No horizon_756d dirs should have been created
+    horizon_dirs = list(artifacts_dir.glob("layer_*/horizon_756d"))
+    assert len(horizon_dirs) == 0, "756d horizon should be skipped due to insufficient data"
