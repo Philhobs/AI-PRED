@@ -48,9 +48,13 @@ def _load_pickle(path: Path):
         return pickle.load(f)
 
 
-def _impute(X: np.ndarray, medians: dict[str, float]) -> np.ndarray:
+def _impute(
+    X: np.ndarray,
+    medians: dict[str, float],
+    feature_cols: list[str] = FEATURE_COLS,
+) -> np.ndarray:
     X = X.copy()
-    for i, name in enumerate(FEATURE_COLS):
+    for i, name in enumerate(feature_cols):
         mask = np.isnan(X[:, i])
         if mask.any():
             X[mask, i] = medians.get(name, 0.0)
@@ -132,24 +136,31 @@ def _predict_layer(
     feature_df: pl.DataFrame,
     layer: str,
     artifacts_dir: Path,
+    horizon_tag: str = "252d",
 ) -> pl.DataFrame | None:
-    """Run one layer model on the tickers belonging to that layer.
+    """Run one layer model on the tickers belonging to that layer for a given horizon.
 
-    Returns DataFrame with [ticker, layer, expected_annual_return,
+    Looks for artifacts at layer_dir/horizon_{horizon_tag}/. Falls back to layer_dir/
+    directly for legacy flat-structure 252d artifacts (backward compat).
+
+    Returns DataFrame with [ticker, layer, horizon, expected_annual_return,
     confidence_low, confidence_high, lgbm_return, rf_return, ridge_return]
     or None if artifacts missing.
     """
     layer_id = LAYER_IDS[layer]
     layer_dir = artifacts_dir / f"layer_{layer_id:02d}_{layer}"
+    horizon_dir = layer_dir / f"horizon_{horizon_tag}"
 
-    if not (layer_dir / "feature_names.json").exists():
+    # Backward compat: fall back to flat structure for legacy 252d artifacts
+    if not horizon_dir.exists() and horizon_tag == "252d":
+        horizon_dir = layer_dir
+
+    if not (horizon_dir / "feature_names.json").exists():
         return None
 
-    feature_names_saved = json.loads((layer_dir / "feature_names.json").read_text())
-    if feature_names_saved != FEATURE_COLS:
-        raise ValueError(
-            f"Layer {layer}: feature mismatch. Retrain with models/train.py."
-        )
+    feature_names_saved: list[str] = json.loads(
+        (horizon_dir / "feature_names.json").read_text()
+    )
 
     layer_tickers = tickers_in_layer(layer)
     layer_df = feature_df.filter(pl.col("ticker").is_in(layer_tickers))
@@ -157,20 +168,20 @@ def _predict_layer(
         return None
 
     tickers = layer_df["ticker"].to_list()
-    medians = json.loads((layer_dir / "imputation_medians.json").read_text())
-    weights = json.loads((layer_dir / "ensemble_weights.json").read_text())
+    medians = json.loads((horizon_dir / "imputation_medians.json").read_text())
+    weights = json.loads((horizon_dir / "ensemble_weights.json").read_text())
 
-    X_raw = layer_df.select(FEATURE_COLS).to_numpy().astype(float)
-    X_imp = _impute(X_raw, medians)
-    scaler = _load_pickle(layer_dir / "feature_scaler.pkl")
+    X_raw = layer_df.select(feature_names_saved).to_numpy().astype(float)
+    X_imp = _impute(X_raw, medians, feature_names_saved)
+    scaler = _load_pickle(horizon_dir / "feature_scaler.pkl")
     X_sc = scaler.transform(X_imp)
-    X_df = pd.DataFrame(X_imp, columns=FEATURE_COLS)
+    X_df = pd.DataFrame(X_imp, columns=feature_names_saved)
 
-    lgbm_q10 = _load_pickle(layer_dir / "lgbm_q10.pkl")
-    lgbm_q50 = _load_pickle(layer_dir / "lgbm_q50.pkl")
-    lgbm_q90 = _load_pickle(layer_dir / "lgbm_q90.pkl")
-    rf_model  = _load_pickle(layer_dir / "rf_model.pkl")
-    ridge_model = _load_pickle(layer_dir / "ridge_model.pkl")
+    lgbm_q10 = _load_pickle(horizon_dir / "lgbm_q10.pkl")
+    lgbm_q50 = _load_pickle(horizon_dir / "lgbm_q50.pkl")
+    lgbm_q90 = _load_pickle(horizon_dir / "lgbm_q90.pkl")
+    rf_model  = _load_pickle(horizon_dir / "rf_model.pkl")
+    ridge_model = _load_pickle(horizon_dir / "ridge_model.pkl")
 
     q10_preds = lgbm_q10.predict(X_df)
     q50_preds = lgbm_q50.predict(X_df)
@@ -187,6 +198,7 @@ def _predict_layer(
     return pl.DataFrame({
         "ticker": tickers,
         "layer": [layer] * len(tickers),
+        "horizon": [horizon_tag] * len(tickers),
         "expected_annual_return": expected.tolist(),
         "confidence_low":  q10_preds.tolist(),
         "confidence_high": q90_preds.tolist(),
@@ -201,8 +213,15 @@ def run_inference(
     data_dir: Path = Path("data/raw"),
     artifacts_dir: Path = Path("models/artifacts"),
     output_dir: Path = Path("data/predictions"),
+    horizon_tag: str | None = None,
 ) -> pl.DataFrame:
-    """Run all 11 layer models and return globally ranked predictions.
+    """Run all trained layer models and return globally ranked predictions.
+
+    horizon_tag: if given, runs only that horizon. If None, runs all horizons
+                 that have at least one trained layer artifact.
+
+    Returns the primary horizon's (252d if available, else first found) combined
+    DataFrame for backward compatibility.
 
     Raises ValueError if date_str is a weekend.
     Raises RuntimeError if no price data exists for date_str.
@@ -211,50 +230,77 @@ def run_inference(
     if as_of.weekday() >= 5:
         raise ValueError(f"{date_str} is a weekend. Skip inference on non-trading days.")
 
-    print(f"[Inference] Running for {date_str}...")
+    from models.train import HORIZON_CONFIGS
+    horizons_to_run = [horizon_tag] if horizon_tag else list(HORIZON_CONFIGS.keys())
+
+    print(f"[Inference] Running for {date_str}, horizon(s): {horizon_tag or 'all'}...")
 
     feature_df = _build_feature_df(date_str, data_dir)
 
-    all_preds: list[pl.DataFrame] = []
-    for layer in all_layers():
-        layer_preds = _predict_layer(feature_df, layer, artifacts_dir)
-        if layer_preds is not None:
-            all_preds.append(layer_preds)
+    primary_combined: pl.DataFrame | None = None
 
-    if not all_preds:
-        raise RuntimeError(
-            f"No layer artifacts found in {artifacts_dir}. Run models/train.py first."
+    for h_tag in horizons_to_run:
+        all_preds: list[pl.DataFrame] = []
+        for layer in all_layers():
+            layer_preds = _predict_layer(feature_df, layer, artifacts_dir, h_tag)
+            if layer_preds is not None:
+                all_preds.append(layer_preds)
+
+        if not all_preds:
+            _LOG.debug("No artifacts for horizon %s — skipping", h_tag)
+            continue
+
+        combined = pl.concat(all_preds).sort("expected_annual_return", descending=True)
+        combined = combined.with_columns(
+            pl.Series("rank", list(range(1, len(combined) + 1)), dtype=pl.Int32),
+            pl.lit(as_of).cast(pl.Date).alias("as_of_date"),
         )
 
-    combined = pl.concat(all_preds).sort("expected_annual_return", descending=True)
-    combined = combined.with_columns(
-        pl.Series("rank", list(range(1, len(combined) + 1)), dtype=pl.Int32),
-        pl.lit(as_of).cast(pl.Date).alias("as_of_date"),
-    )
+        # Write horizon-partitioned output
+        out_path = output_dir / f"date={date_str}" / f"horizon={h_tag}" / "predictions.parquet"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        combined.write_parquet(out_path, compression="snappy")
 
-    out_path = output_dir / f"date={date_str}" / "predictions.parquet"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    combined.write_parquet(out_path, compression="snappy")
+        # Backward-compat alias for 252d
+        if h_tag == "252d":
+            compat_path = output_dir / f"date={date_str}" / "predictions.parquet"
+            combined.write_parquet(compat_path, compression="snappy")
 
-    n_tickers = len(combined)
-    n_layers = combined["layer"].n_unique()
-    print(f"[Inference] {n_tickers} tickers across {n_layers} layers → {out_path}")
-    print(combined.select(["rank", "ticker", "layer", "expected_annual_return"]).head(10))
+        n_tickers = len(combined)
+        n_layers = combined["layer"].n_unique()
+        print(f"[Inference] [{h_tag}] {n_tickers} tickers × {n_layers} layers → {out_path}")
 
-    # Enrich predictions with portfolio metrics (liquidity, agreement, correlation)
+        # Track primary result (252d preferred, else first)
+        if primary_combined is None or h_tag == "252d":
+            primary_combined = combined
+
+    if primary_combined is None:
+        raise RuntimeError(
+            f"No layer artifacts found in {artifacts_dir} for any requested horizon. "
+            "Run models/train.py first."
+        )
+
+    # Enrich primary predictions with portfolio metrics
     try:
         from processing.portfolio_metrics import enrich
         enrich(date_str, predictions_dir=output_dir)
     except Exception as exc:
         _LOG.warning("Portfolio metrics enrichment failed (non-fatal): %s", exc, exc_info=True)
 
-    return combined
+    return primary_combined
 
 
 if __name__ == "__main__":
-    import sys
+    import argparse
     today = dt.date.today()
     if today.weekday() >= 5:
         print(f"[Inference] {today} is a weekend — skipping.")
-        sys.exit(0)
-    run_inference(date_str=today.isoformat())
+        import sys; sys.exit(0)
+
+    parser = argparse.ArgumentParser(description="Run multi-horizon inference.")
+    parser.add_argument(
+        "--horizon", default=None,
+        help="Single horizon tag, e.g. '5d' or '252d'. Default: all trained horizons.",
+    )
+    args = parser.parse_args()
+    run_inference(date_str=today.isoformat(), horizon_tag=args.horizon)

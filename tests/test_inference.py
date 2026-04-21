@@ -13,6 +13,11 @@ from pathlib import Path
 TICKERS_FIXTURE = ["NVDA", "MSFT", "AMZN", "GOOGL", "META"]
 N_DAYS = 500
 
+_LGBM_TEST = {"n_estimators": 10, "learning_rate": 0.1, "num_leaves": 8,
+              "min_child_samples": 5, "n_jobs": 1, "random_state": 42}
+_RF_TEST    = {"n_estimators": 10, "max_features": "sqrt",
+               "min_samples_leaf": 2, "n_jobs": 1, "random_state": 42}
+
 
 def _write_ohlcv_fixture(ohlcv_dir: Path, tickers: list[str], n_days: int) -> None:
     start = datetime.date(2020, 1, 1)
@@ -85,6 +90,83 @@ def trained_env(tmp_path_factory):
     date_str = (datetime.date(2020, 1, 1) + datetime.timedelta(days=300)).isoformat()
 
     return base, artifacts_dir, date_str
+
+
+@pytest.fixture(scope="module")
+def trained_env_multi(tmp_path_factory):
+    """Train horizon_252d artifacts; return (base, date_str)."""
+    base = tmp_path_factory.mktemp("inference_multi")
+    ohlcv_dir = base / "financials" / "ohlcv"
+    fund_dir = base / "financials" / "fundamentals"
+    artifacts_dir = base / "artifacts"
+    _write_ohlcv_fixture(ohlcv_dir, TICKERS_FIXTURE, N_DAYS)
+    _write_fundamentals_fixture(fund_dir, TICKERS_FIXTURE)
+
+    from models.train import train_all_layers
+    train_all_layers(
+        ohlcv_dir, fund_dir, artifacts_dir,
+        horizon_tag="252d",
+        lgbm_params=_LGBM_TEST, rf_params=_RF_TEST,
+    )
+
+    # Use a date early enough to have a full 252-day forward window
+    import datetime
+    start = datetime.date(2020, 1, 1)
+    date_str = (start + datetime.timedelta(days=N_DAYS - 253)).isoformat()
+    return base, date_str
+
+
+def test_run_inference_writes_horizon_parquet(trained_env_multi):
+    """run_inference with horizon_tag='252d' writes horizon=252d/predictions.parquet."""
+    base, date_str = trained_env_multi
+    output_dir = base / "predictions_horizon"
+
+    from models.inference import run_inference
+    run_inference(
+        date_str=date_str,
+        data_dir=base,
+        artifacts_dir=base / "artifacts",
+        output_dir=output_dir,
+        horizon_tag="252d",
+    )
+
+    expected = output_dir / f"date={date_str}" / "horizon=252d" / "predictions.parquet"
+    assert expected.exists(), f"Expected output at {expected}"
+
+
+def test_run_inference_backward_compat_path(trained_env_multi):
+    """The 252d horizon is also written to the flat date={d}/predictions.parquet path."""
+    base, date_str = trained_env_multi
+    output_dir = base / "predictions_compat"
+
+    from models.inference import run_inference
+    run_inference(
+        date_str=date_str,
+        data_dir=base,
+        artifacts_dir=base / "artifacts",
+        output_dir=output_dir,
+        horizon_tag="252d",
+    )
+
+    compat_path = output_dir / f"date={date_str}" / "predictions.parquet"
+    assert compat_path.exists(), f"Backward-compat path missing: {compat_path}"
+
+
+def test_run_inference_horizon_column_present(trained_env_multi):
+    """Returned DataFrame contains a 'horizon' column with the correct tag value."""
+    base, date_str = trained_env_multi
+
+    from models.inference import run_inference
+    result = run_inference(
+        date_str=date_str,
+        data_dir=base,
+        artifacts_dir=base / "artifacts",
+        output_dir=base / "predictions_col",
+        horizon_tag="252d",
+    )
+
+    assert "horizon" in result.columns
+    assert result["horizon"].unique().to_list() == ["252d"]
 
 
 def test_run_inference_returns_correct_schema(trained_env):
