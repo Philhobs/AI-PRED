@@ -194,3 +194,51 @@ def test_impute_uses_feature_cols_param(tmp_path):
 
     assert result[0, 1] == pytest.approx(20.0)
     assert result[1, 0] == pytest.approx(10.0)
+
+
+def test_build_training_dataset_horizon_5d_returns_label_return(tmp_path):
+    """With horizon_tag='5d', returns 'label_return' column (not label_return_1y)."""
+    ohlcv_dir = tmp_path / "financials" / "ohlcv"
+    fund_dir = tmp_path / "financials" / "fundamentals"
+    _write_ohlcv_fixture(ohlcv_dir, TICKERS_FIXTURE, N_DAYS)
+    _write_fundamentals_fixture(fund_dir, TICKERS_FIXTURE)
+
+    from models.train import build_training_dataset, HORIZON_CONFIGS, TIER_FEATURE_COLS
+    df = build_training_dataset(ohlcv_dir, fund_dir, horizon_tag="5d")
+
+    assert "label_return" in df.columns
+    assert "label_return_1y" not in df.columns
+    assert "label_return_5d" not in df.columns
+    assert df["label_return"].null_count() == 0
+
+
+def test_build_training_dataset_horizon_5d_uses_short_features(tmp_path):
+    """With horizon_tag='5d', returned feature columns match TIER_FEATURE_COLS['short']."""
+    ohlcv_dir = tmp_path / "financials" / "ohlcv"
+    fund_dir = tmp_path / "financials" / "fundamentals"
+    _write_ohlcv_fixture(ohlcv_dir, TICKERS_FIXTURE, N_DAYS)
+    _write_fundamentals_fixture(fund_dir, TICKERS_FIXTURE)
+
+    from models.train import build_training_dataset, TIER_FEATURE_COLS
+    df = build_training_dataset(ohlcv_dir, fund_dir, horizon_tag="5d")
+
+    short_cols = TIER_FEATURE_COLS["short"]
+    for col in short_cols:
+        assert col in df.columns, f"Expected short-tier column {col!r} missing"
+    # Verify long-tier-only columns are absent (e.g. graph features)
+    assert "graph_partner_momentum_30d" not in df.columns
+
+
+def test_build_training_dataset_no_horizon_tag_unchanged(tmp_path):
+    """Without horizon_tag, behavior is unchanged: returns label_return_1y."""
+    ohlcv_dir = tmp_path / "financials" / "ohlcv"
+    fund_dir = tmp_path / "financials" / "fundamentals"
+    _write_ohlcv_fixture(ohlcv_dir, TICKERS_FIXTURE, N_DAYS)
+    _write_fundamentals_fixture(fund_dir, TICKERS_FIXTURE)
+
+    from models.train import build_training_dataset, FEATURE_COLS
+    df = build_training_dataset(ohlcv_dir, fund_dir)
+
+    assert "label_return_1y" in df.columns
+    for col in FEATURE_COLS:
+        assert col in df.columns

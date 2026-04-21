@@ -32,7 +32,7 @@ from processing.fundamental_features import join_fundamentals
 from processing.fx_features import join_fx_features
 from processing.graph_features import join_graph_features
 from processing.insider_features import join_insider_features
-from processing.label_builder import build_labels
+from processing.label_builder import build_labels, build_multi_horizon_labels
 from processing.ownership_features import join_ownership_features
 from processing.price_features import build_price_features
 from processing.sentiment_features import join_sentiment_features
@@ -160,13 +160,19 @@ def build_training_dataset(
     ohlcv_dir: Path,
     fundamentals_dir: Path,
     layer: str | None = None,
+    horizon_tag: str | None = None,
 ) -> pl.DataFrame:
     """
-    Assemble the full labeled training dataset, optionally filtered to one layer.
+    Assemble the full labeled training dataset, optionally filtered to one layer
+    and one prediction horizon.
 
-    layer: if given, filters to tickers in that layer only (for per-layer training).
-    Returns DataFrame with columns: ticker, date, FEATURE_COLS..., label_return_1y.
-    Returns empty DataFrame if no OHLCV data exists.
+    layer:       if given, filters to tickers in that layer only.
+    horizon_tag: if given, uses multi-horizon labels and returns tier-appropriate
+                 feature columns plus a 'label_return' column. The column
+                 'label_return_{horizon_tag}' is renamed to 'label_return', and rows
+                 where that column is null are dropped.
+                 If None, returns the full FEATURE_COLS plus 'label_return_1y'
+                 (backward-compatible behavior).
     """
     labels = build_labels(ohlcv_dir)
     if labels.is_empty():
@@ -275,6 +281,27 @@ def build_training_dataset(
 
     df = join_supply_chain_features(df, ohlcv_dir=ohlcv_dir, fx_dir=ohlcv_dir.parent / "fx")
     df = join_fx_features(df, ohlcv_dir=ohlcv_dir)
+
+    if horizon_tag is not None:
+        label_col = f"label_return_{horizon_tag}"
+        tier = HORIZON_CONFIGS[horizon_tag]["tier"]
+        feat_cols = TIER_FEATURE_COLS[tier]
+
+        # Join multi-horizon labels (wide: one column per horizon)
+        multi_labels = build_multi_horizon_labels(ohlcv_dir)
+        if layer is not None:
+            multi_labels = multi_labels.filter(pl.col("ticker").is_in(layer_tickers))
+
+        df = df.join(
+            multi_labels.select(["ticker", "date", label_col]),
+            on=["ticker", "date"],
+            how="inner",
+        ).filter(pl.col(label_col).is_not_null()).rename({label_col: "label_return"})
+
+        return (
+            df.select(["ticker", "date"] + feat_cols + ["label_return"])
+            .sort(["date", "ticker"])
+        )
 
     return (
         df.select(["ticker", "date"] + FEATURE_COLS + ["label_return_1y"])
