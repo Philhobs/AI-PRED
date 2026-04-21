@@ -181,10 +181,8 @@ def test_otx_source_with_key_returns_pulse_rows(monkeypatch):
 
     with patch("requests.get", return_value=mock_resp), \
          patch("time.sleep"):
-        import importlib
-        from ingestion import cyber_threat_ingestion
-        importlib.reload(cyber_threat_ingestion)
-        source = cyber_threat_ingestion.OTXSource()
+        from ingestion.cyber_threat_ingestion import OTXSource
+        source = OTXSource()
         df = source.fetch("2024-01-01", "2024-01-31")
 
     _check_schema(df)
@@ -220,3 +218,56 @@ def test_ingest_cyber_threats_writes_parquet(tmp_path):
     df = pl.read_parquet(expected)
     assert "metric" in df.columns
     assert len(df) >= 1
+
+
+def test_nvd_source_cvss_exactly_7_is_high():
+    """NVDSource classifies CVSS score=7.0 exactly as 'cve_high' (boundary, not excluded)."""
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = _nvd_response(score=7.0)
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch("requests.get", return_value=mock_resp), \
+         patch("time.sleep"):
+        from ingestion.cyber_threat_ingestion import NVDSource
+        source = NVDSource()
+        df = source.fetch("2024-01-15", "2024-01-15")
+
+    _check_schema(df)
+    assert len(df) == 1
+    assert df["metric"][0] == "cve_high"
+
+
+def test_nvd_source_cvss_exactly_9_is_critical():
+    """NVDSource classifies CVSS score=9.0 exactly as 'cve_critical' (not 'cve_high')."""
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = _nvd_response(score=9.0)
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch("requests.get", return_value=mock_resp), \
+         patch("time.sleep"):
+        from ingestion.cyber_threat_ingestion import NVDSource
+        source = NVDSource()
+        df = source.fetch("2024-01-15", "2024-01-15")
+
+    _check_schema(df)
+    assert len(df) == 1
+    assert df["metric"][0] == "cve_critical"
+
+
+def test_ingest_cyber_threats_all_empty_no_parquet(tmp_path):
+    """When all sources return empty DataFrames, no parquet files are written and no crash occurs."""
+
+    class _EmptySource:
+        def fetch(self, start_date: str, end_date: str) -> pl.DataFrame:
+            return pl.DataFrame(schema={"date": pl.Date, "source": pl.Utf8, "metric": pl.Utf8, "value": pl.Float64})
+
+    from ingestion.cyber_threat_ingestion import ingest_cyber_threats
+    ingest_cyber_threats(
+        start_date="2024-01-15",
+        end_date="2024-01-15",
+        output_dir=tmp_path,
+        sources=[_EmptySource(), _EmptySource()],
+    )
+
+    parquet_files = list(tmp_path.rglob("*.parquet"))
+    assert parquet_files == [], f"Expected no parquet files, found: {parquet_files}"

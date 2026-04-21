@@ -82,6 +82,7 @@ class NVDSource:
             e_str = f"{chunk_end.isoformat()}T23:59:59.999"
 
             start_idx = 0
+            total = 0
             while True:
                 params: dict = {
                     "pubStartDate": s_str,
@@ -97,7 +98,10 @@ class NVDSource:
                     resp.raise_for_status()
                     data = resp.json()
                 except Exception as exc:
-                    _LOG.warning("[NVD] Fetch failed: %s", exc)
+                    _LOG.error(
+                        "[NVD] Fetch failed at page startIndex=%d (have %d/%d results so far): %s",
+                        start_idx, len(rows), total, exc,
+                    )
                     break
 
                 vulns = data.get("vulnerabilities", [])
@@ -186,18 +190,20 @@ class OTXSource:
         headers = {"X-OTX-API-KEY": self._api_key}
         rows: list[dict] = []
         url: str | None = _OTX_URL
+        first_page = True
 
         while url:
-            params = {"modified_since": f"{start_date}T00:00:00", "limit": 50}
+            req_params = {"modified_since": f"{start_date}T00:00:00", "limit": 50} if first_page else None
             try:
-                resp = requests.get(url, headers=headers, params=params, timeout=30)
+                resp = requests.get(url, headers=headers, params=req_params, timeout=30)
                 resp.raise_for_status()
                 data = resp.json()
             except Exception as exc:
                 _LOG.warning("[OTX] Fetch failed: %s", exc)
                 break
 
-            for pulse in data.get("results", []):
+            results_list = data.get("results", [])
+            for pulse in results_list:
                 created_str = (pulse.get("created") or "")[:10]
                 if not created_str:
                     continue
@@ -214,7 +220,12 @@ class OTXSource:
                     "value": 1.0,
                 })
 
-            url = data.get("next")
+            # If last pulse on this page predates our window, no earlier pages will match
+            if results_list and (results_list[-1].get("created") or "")[:10] < start_date:
+                url = None
+            else:
+                url = data.get("next")
+            first_page = False
             time.sleep(1)
 
         return pl.DataFrame(rows, schema=_SCHEMA) if rows else _empty()
@@ -248,7 +259,7 @@ def ingest_cyber_threats(
 
     # Write one parquet file per date partition
     for date_val, group in combined.group_by("date"):
-        date_str = str(date_val[0]) if isinstance(date_val, tuple) else str(date_val)
+        date_str = str(date_val[0])
         out_path = output_dir / f"date={date_str}" / "threats.parquet"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         group.write_parquet(out_path, compression="snappy")
