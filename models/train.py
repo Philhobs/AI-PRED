@@ -136,7 +136,7 @@ TIER_FEATURE_COLS: dict[str, list[str]] = {
         + SHORT_INTEREST_FEATURE_COLS
         + _CYBER_THREAT_SHORT_COLS   # 5 features: *_7d only
     ),
-    "medium": FEATURE_COLS,          # all 55 features
+    "medium": list(FEATURE_COLS),    # all 55 features (copy to avoid shared mutable reference)
     "long": (
         PRICE_FEATURE_COLS
         + FUND_FEATURE_COLS
