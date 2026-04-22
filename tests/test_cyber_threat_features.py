@@ -8,7 +8,6 @@ import pytest
 
 def _write_threats(threats_dir: Path, rows: list[dict]) -> None:
     """Write raw threat rows to the Hive-partitioned parquet structure."""
-    import polars as pl
     df = pl.DataFrame(
         rows,
         schema={"date": pl.Date, "source": pl.Utf8, "metric": pl.Utf8, "value": pl.Float64},
@@ -39,13 +38,15 @@ def test_build_cyber_threat_features_has_all_columns(tmp_path):
 def test_build_cyber_threat_features_7d_rolling_sum(tmp_path):
     """cve_critical_7d is the 7-day rolling count of cve_critical events."""
     threats_dir = tmp_path / "cyber_threat"
-    # 3 critical CVEs on Jan 15, 2 on Jan 16
+    # 3 critical CVEs on Jan 15, 2 on Jan 16, 2 on Jan 23 (8 days after Jan 15)
     _write_threats(threats_dir, [
         {"date": datetime.date(2024, 1, 15), "source": "nvd", "metric": "cve_critical", "value": 1.0},
         {"date": datetime.date(2024, 1, 15), "source": "nvd", "metric": "cve_critical", "value": 1.0},
         {"date": datetime.date(2024, 1, 15), "source": "nvd", "metric": "cve_critical", "value": 1.0},
         {"date": datetime.date(2024, 1, 16), "source": "nvd", "metric": "cve_critical", "value": 1.0},
         {"date": datetime.date(2024, 1, 16), "source": "nvd", "metric": "cve_critical", "value": 1.0},
+        {"date": datetime.date(2024, 1, 23), "source": "nvd", "metric": "cve_critical", "value": 1.0},
+        {"date": datetime.date(2024, 1, 23), "source": "nvd", "metric": "cve_critical", "value": 1.0},
     ])
 
     from processing.cyber_threat_features import build_cyber_threat_features
@@ -56,6 +57,10 @@ def test_build_cyber_threat_features_7d_rolling_sum(tmp_path):
 
     assert jan15["cve_critical_7d"][0] == pytest.approx(3.0)
     assert jan16["cve_critical_7d"][0] == pytest.approx(5.0)  # 3 + 2 within 7 days
+
+    jan23 = result.filter(pl.col("date") == datetime.date(2024, 1, 23))
+    # Jan 23 window: (Jan 16, Jan 23] — Jan 15 and Jan 16 events excluded
+    assert jan23["cve_critical_7d"][0] == pytest.approx(2.0)
 
 
 def test_build_cyber_threat_features_index_in_bounds(tmp_path):
@@ -125,3 +130,25 @@ def test_join_cyber_threat_features_missing_dir_zero_fills(tmp_path):
     for col in CYBER_THREAT_FEATURE_COLS:
         assert col in result.columns
         assert result[col][0] == pytest.approx(0.0), f"{col} should be 0.0 when no data"
+
+
+def test_join_cyber_threat_features_partial_date_zero_fills(tmp_path):
+    """Dates in df with no matching threat data get 0.0 (not null) for all feature columns."""
+    threats_dir = tmp_path / "cyber_threat"
+    _write_threats(threats_dir, [
+        {"date": datetime.date(2024, 1, 15), "source": "nvd", "metric": "cve_critical", "value": 1.0},
+    ])
+
+    # df has Jan 15 (has data) and Jan 16 (no data)
+    df = pl.DataFrame({
+        "ticker": ["NVDA", "NVDA"],
+        "date": [datetime.date(2024, 1, 15), datetime.date(2024, 1, 16)],
+    })
+
+    from processing.cyber_threat_features import join_cyber_threat_features, CYBER_THREAT_FEATURE_COLS
+    result = join_cyber_threat_features(df, threats_dir)
+
+    assert len(result) == 2
+    jan16 = result.filter(pl.col("date") == datetime.date(2024, 1, 16))
+    for col in CYBER_THREAT_FEATURE_COLS:
+        assert jan16[col][0] == pytest.approx(0.0), f"{col} should be 0.0 for missing date"

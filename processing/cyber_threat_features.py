@@ -71,18 +71,18 @@ def build_cyber_threat_features(threats_dir: Path) -> pl.DataFrame:
         if col not in daily.columns:
             daily = daily.with_columns(pl.lit(0.0).alias(col))
 
-    # 7-day rolling sums (min_samples=1 so partial windows at start are not null)
+    # 7-day rolling sums (calendar-aware: window = (date - 7d, date], closed="right")
     daily = daily.with_columns([
-        pl.col("cve_critical").rolling_sum(window_size=7, min_samples=1).alias("cve_critical_7d"),
-        pl.col("cve_high").rolling_sum(window_size=7, min_samples=1).alias("cve_high_7d"),
-        pl.col("cisa_kev").rolling_sum(window_size=7, min_samples=1).alias("cisa_kev_7d"),
-        pl.col("otx_pulse").rolling_sum(window_size=7, min_samples=1).alias("otx_pulse_7d"),
+        pl.col("cve_critical").rolling_sum_by("date", window_size="7d").alias("cve_critical_7d"),
+        pl.col("cve_high").rolling_sum_by("date", window_size="7d").alias("cve_high_7d"),
+        pl.col("cisa_kev").rolling_sum_by("date", window_size="7d").alias("cisa_kev_7d"),
+        pl.col("otx_pulse").rolling_sum_by("date", window_size="7d").alias("otx_pulse_7d"),
     ])
 
-    # 30-day rolling sums
+    # 30-day rolling sums (calendar-aware: window = (date - 30d, date], closed="right")
     daily = daily.with_columns([
-        pl.col("cve_critical").rolling_sum(window_size=30, min_samples=1).alias("cve_critical_30d"),
-        pl.col("cisa_kev").rolling_sum(window_size=30, min_samples=1).alias("cisa_kev_30d"),
+        pl.col("cve_critical").rolling_sum_by("date", window_size="30d").alias("cve_critical_30d"),
+        pl.col("cisa_kev").rolling_sum_by("date", window_size="30d").alias("cisa_kev_30d"),
     ])
 
     # Composite threat index: weighted sum normalised to [0, 1]
@@ -93,7 +93,7 @@ def build_cyber_threat_features(threats_dir: Path) -> pl.DataFrame:
         .alias("_weighted")
     )
     daily = daily.with_columns(
-        pl.col("_weighted").rolling_max(window_size=30, min_samples=1).alias("_weighted_max_30d")
+        pl.col("_weighted").rolling_max_by("date", window_size="30d").alias("_weighted_max_30d")
     )
     daily = daily.with_columns(
         (pl.col("_weighted") / pl.col("_weighted_max_30d").clip(lower_bound=1.0))
@@ -101,6 +101,7 @@ def build_cyber_threat_features(threats_dir: Path) -> pl.DataFrame:
         .alias("cyber_threat_index_7d")
     )
 
+    # Select only the output columns, dropping intermediate _weighted and _weighted_max_30d
     return daily.select(["date"] + CYBER_THREAT_FEATURE_COLS)
 
 
