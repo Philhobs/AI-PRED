@@ -1,6 +1,5 @@
 """Tests for processing/options_features.py."""
 import datetime
-import math
 from pathlib import Path
 
 import polars as pl
@@ -204,6 +203,25 @@ def test_put_call_oi_ratio_correct(tmp_path):
     result = build_options_features(options_dir, ohlcv_dir)
 
     assert result["put_call_oi_ratio"][0] == pytest.approx(2.0)
+
+
+def test_put_call_vol_ratio_correct(tmp_path):
+    """put_call_vol_ratio = put_volume / call_volume for near-term expiry."""
+    as_of = datetime.date(2024, 1, 15)
+    options_dir = tmp_path / "options"
+    ohlcv_dir = tmp_path / "ohlcv"
+
+    _write_options(options_dir, [
+        {"ticker": "NVDA", "date": as_of, "expiry": _near_term_expiry(as_of),
+         "option_type": "call", "strike": 100.0, "iv": 0.30, "oi": 200, "volume": 100},
+        {"ticker": "NVDA", "date": as_of, "expiry": _near_term_expiry(as_of),
+         "option_type": "put", "strike": 100.0, "iv": 0.32, "oi": 400, "volume": 300},
+    ])
+
+    from processing.options_features import build_options_features
+    result = build_options_features(options_dir, ohlcv_dir)
+
+    assert result["put_call_vol_ratio"][0] == pytest.approx(3.0)  # 300/100
 
 
 # ── skew_otm ─────────────────────────────────────────────────────────────────
