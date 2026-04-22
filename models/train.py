@@ -383,7 +383,7 @@ def train_single_layer(
     """Fit the ensemble on df and save all artifacts to artifacts_dir.
 
     df must have columns: ticker, date, feature_cols..., label_col.
-    feature_cols: feature list to train on (default: all 48 FEATURE_COLS).
+    feature_cols: feature list to train on (default: all 61 FEATURE_COLS).
     label_col: target column name (default: 'label_return').
     """
     if len(df) < 50:
