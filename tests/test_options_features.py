@@ -162,10 +162,14 @@ def test_iv_hv_spread_negative_when_hv_exceeds_iv(tmp_path):
          "option_type": "call", "strike": 100.0, "iv": 0.05, "oi": 500, "volume": 200},
     ])
 
-    # Highly volatile OHLCV → HV30 well above 0.05
+    # Highly volatile OHLCV → HV30 well above 0.05.
+    # Alternating ±15%/-13% moves give sample stdev × √252 ≈ 2.22, far above ATM IV 0.05.
     rng_prices = [100.0]
-    for _ in range(34):
-        rng_prices.append(rng_prices[-1] * math.exp(0.05))  # 5% daily move → HV >> 0.05 annualized
+    for i in range(34):
+        if i % 2 == 0:
+            rng_prices.append(rng_prices[-1] * 1.15)   # +15% day
+        else:
+            rng_prices.append(rng_prices[-1] * 0.87)   # -13% day
 
     ohlcv_rows = [
         {"ticker": "NVDA", "date": as_of - datetime.timedelta(days=34 - i), "close_price": p}

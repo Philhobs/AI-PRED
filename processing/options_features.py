@@ -129,10 +129,10 @@ def _compute_hv30(ohlcv_dir: Path, ticker: str, as_of_date: datetime.date) -> fl
 
     log_returns = log_returns[-30:]
     n = len(log_returns)
-    # Use RMS (root-mean-square) close-to-close formula — annualised.
-    # This is equivalent to sqrt(mean(r²) * 252), which captures both
-    # directional drift and dispersion, consistent with practitioner usage.
-    return math.sqrt(sum(r ** 2 for r in log_returns) / n * 252)
+    # Standard HV30 estimator: sample stdev of log returns × sqrt(252).
+    # Mean-centering (ddof=1) removes drift so only dispersion is captured.
+    mean_r = sum(log_returns) / n
+    return math.sqrt(sum((r - mean_r) ** 2 for r in log_returns) / (n - 1)) * math.sqrt(252)
 
 
 def _compute_row(
