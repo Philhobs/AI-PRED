@@ -20,6 +20,7 @@ import time
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
+import pandas as pd
 import polars as pl
 
 from ingestion.ticker_registry import TICKERS
@@ -84,9 +85,9 @@ class YFinanceOptionsSource:
                             "expiry": expiry_date,
                             "option_type": opt_type,
                             "strike": float(row.get("strike", 0.0) or 0.0),
-                            "iv": float(row.get("impliedVolatility", 0.0) or 0.0),
-                            "oi": int(row.get("openInterest", 0) or 0),
-                            "volume": int(row.get("volume", 0) or 0),
+                            "iv": 0.0 if pd.isna(row.get("impliedVolatility")) else float(row["impliedVolatility"]),
+                            "oi": 0 if pd.isna(row.get("openInterest")) else int(row["openInterest"]),
+                            "volume": 0 if pd.isna(row.get("volume")) else int(row["volume"]),
                         })
             except Exception as exc:
                 _LOG.debug("Error fetching expiry %s for %s: %s", expiry_str, ticker, exc)
@@ -107,7 +108,7 @@ def ingest_options(
     """Fetch options chain for all tickers and write Hive-partitioned parquet.
 
     Tickers with no options data (e.g. DARK.L) are silently skipped — no file written.
-    time.sleep(0.5) is called between every ticker to respect yfinance rate limits.
+    time.sleep(1.0) is called between every ticker to respect yfinance rate limits.
     """
     if source is None:
         source = YFinanceOptionsSource()
@@ -121,7 +122,7 @@ def ingest_options(
             _LOG.info("Wrote %d contracts for %s on %s", len(df), ticker, date_str)
         else:
             _LOG.debug("No options data for %s on %s — skipping", ticker, date_str)
-        time.sleep(0.5)
+        time.sleep(1.0)
 
 
 if __name__ == "__main__":

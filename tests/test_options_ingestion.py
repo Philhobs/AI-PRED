@@ -1,10 +1,8 @@
 """Tests for ingestion/options_ingestion.py — yfinance calls are mocked."""
 import datetime
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import polars as pl
-import pytest
 
 _EXPECTED_SCHEMA = {
     "ticker": pl.Utf8,
@@ -145,3 +143,33 @@ def test_ingest_options_skips_empty_chain(tmp_path):
     ingest_options(["DARK.L"], "2024-01-15", tmp_path, source=mock_source)
 
     assert not (tmp_path / "date=2024-01-15").exists()
+
+
+def test_yfinance_source_sanitises_nan_and_na_values():
+    """NaN iv and pd.NA oi/volume are coerced to 0 — no exception, no NaN in output."""
+    import pandas as pd
+    import math
+
+    nan_opts_df = pd.DataFrame({
+        "strike": [100.0],
+        "impliedVolatility": [float("nan")],
+        "openInterest": [pd.NA],
+        "volume": [pd.NA],
+    })
+    chain = MagicMock()
+    chain.calls = nan_opts_df
+    chain.puts = nan_opts_df
+
+    mock_t = MagicMock()
+    mock_t.options = ["2024-02-16"]
+    mock_t.option_chain.return_value = chain
+
+    with patch("yfinance.Ticker", return_value=mock_t), patch("time.sleep"):
+        from ingestion.options_ingestion import YFinanceOptionsSource
+        source = YFinanceOptionsSource()
+        df = source.fetch("NVDA", "2024-01-15")
+
+    assert len(df) > 0
+    assert not any(math.isnan(v) for v in df["iv"].to_list()), "iv must not be NaN"
+    assert df["oi"].to_list() == [0, 0]  # call and put rows
+    assert df["volume"].to_list() == [0, 0]
