@@ -163,7 +163,7 @@ def test_feature_cols_contains_fx():
 
 
 def test_tier_feature_cols_medium_equals_feature_cols():
-    """TIER_FEATURE_COLS['medium'] must be identical to FEATURE_COLS (48 features)."""
+    """TIER_FEATURE_COLS['medium'] must be identical to FEATURE_COLS (61 features)."""
     from models.train import FEATURE_COLS, TIER_FEATURE_COLS
     assert TIER_FEATURE_COLS["medium"] == FEATURE_COLS
 
