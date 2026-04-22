@@ -39,6 +39,7 @@ from processing.sentiment_features import join_sentiment_features
 from processing.short_interest_features import join_short_interest_features
 from processing.supply_chain_features import join_supply_chain_features
 from processing.cyber_threat_features import CYBER_THREAT_FEATURE_COLS, join_cyber_threat_features
+from processing.options_features import OPTIONS_FEATURE_COLS, join_options_features
 from ingestion.ticker_registry import LAYER_IDS, tickers_in_layer, layers as all_layers
 
 _LOG = logging.getLogger(__name__)
@@ -110,6 +111,7 @@ FEATURE_COLS = (
     + OWNERSHIP_FEATURE_COLS + ENERGY_FEATURE_COLS
     + SUPPLY_CHAIN_FEATURE_COLS + FX_FEATURE_COLS
     + CYBER_THREAT_FEATURE_COLS  # 48 → 55 features total
+    + OPTIONS_FEATURE_COLS       # 55 → 61 features total
 )
 
 # ── Horizon registry ──────────────────────────────────────────────────────────
@@ -135,8 +137,9 @@ TIER_FEATURE_COLS: dict[str, list[str]] = {
         + INSIDER_FEATURE_COLS
         + SHORT_INTEREST_FEATURE_COLS
         + _CYBER_THREAT_SHORT_COLS   # 5 features: *_7d only
+        + OPTIONS_FEATURE_COLS       # all 6 options features
     ),
-    "medium": list(FEATURE_COLS),    # all 55 features (copy to avoid shared mutable reference)
+    "medium": list(FEATURE_COLS),    # all 61 features (copy to avoid shared mutable reference)
     "long": (
         PRICE_FEATURE_COLS
         + FUND_FEATURE_COLS
@@ -320,6 +323,10 @@ def build_training_dataset(
     # Join cyber threat regime features (date-keyed market-wide signals)
     cyber_threat_dir = fundamentals_dir.parent.parent / "cyber_threat"
     df = join_cyber_threat_features(df, cyber_threat_dir)
+
+    # Join options-derived features (ticker-specific, joined by (ticker, date))
+    options_dir = fundamentals_dir.parent.parent / "options"
+    df = join_options_features(df, options_dir, ohlcv_dir)
 
     if horizon_tag is not None:
         return (

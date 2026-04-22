@@ -366,7 +366,7 @@ def test_feature_cols_includes_cyber_threat():
     from processing.cyber_threat_features import CYBER_THREAT_FEATURE_COLS
     for col in CYBER_THREAT_FEATURE_COLS:
         assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
-    assert len(FEATURE_COLS) == 55, f"Expected 55 features, got {len(FEATURE_COLS)}"
+    assert len(FEATURE_COLS) == 61, f"Expected 61 features, got {len(FEATURE_COLS)}"
 
 
 def test_tier_short_includes_cyber_threat_7d_features():
@@ -387,3 +387,54 @@ def test_tier_long_excludes_cyber_threat():
     from processing.cyber_threat_features import CYBER_THREAT_FEATURE_COLS
     for col in CYBER_THREAT_FEATURE_COLS:
         assert col not in TIER_FEATURE_COLS["long"], f"{col} should not be in long tier"
+
+
+# ── Options signals integration ────────────────────────────────────────────────
+
+def test_feature_cols_has_61_elements():
+    """FEATURE_COLS must have exactly 61 elements after adding OPTIONS_FEATURE_COLS."""
+    from models.train import FEATURE_COLS
+    assert len(FEATURE_COLS) == 61, f"Expected 61 features, got {len(FEATURE_COLS)}"
+
+
+def test_options_feature_cols_in_feature_cols():
+    """All 6 OPTIONS_FEATURE_COLS must appear in FEATURE_COLS."""
+    from models.train import FEATURE_COLS
+    from processing.options_features import OPTIONS_FEATURE_COLS
+    for col in OPTIONS_FEATURE_COLS:
+        assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
+
+
+def test_options_feature_cols_in_short_tier():
+    """All 6 OPTIONS_FEATURE_COLS must be in TIER_FEATURE_COLS['short']."""
+    from models.train import TIER_FEATURE_COLS
+    from processing.options_features import OPTIONS_FEATURE_COLS
+    short_cols = TIER_FEATURE_COLS["short"]
+    for col in OPTIONS_FEATURE_COLS:
+        assert col in short_cols, f"{col} missing from TIER_FEATURE_COLS['short']"
+
+
+def test_options_feature_cols_in_medium_tier():
+    """All 6 OPTIONS_FEATURE_COLS must be in TIER_FEATURE_COLS['medium'] (inherits FEATURE_COLS)."""
+    from models.train import TIER_FEATURE_COLS
+    from processing.options_features import OPTIONS_FEATURE_COLS
+    medium_cols = TIER_FEATURE_COLS["medium"]
+    for col in OPTIONS_FEATURE_COLS:
+        assert col in medium_cols, f"{col} missing from TIER_FEATURE_COLS['medium']"
+
+
+def test_options_feature_cols_not_in_long_tier():
+    """OPTIONS_FEATURE_COLS must NOT appear in TIER_FEATURE_COLS['long'] (noise at year+ horizons)."""
+    from models.train import TIER_FEATURE_COLS
+    from processing.options_features import OPTIONS_FEATURE_COLS
+    long_cols = set(TIER_FEATURE_COLS["long"])
+    for col in OPTIONS_FEATURE_COLS:
+        assert col not in long_cols, f"{col} must not be in TIER_FEATURE_COLS['long']"
+
+
+def test_medium_tier_is_copy_of_feature_cols():
+    """TIER_FEATURE_COLS['medium'] must be a separate list object from FEATURE_COLS."""
+    from models.train import FEATURE_COLS, TIER_FEATURE_COLS
+    assert TIER_FEATURE_COLS["medium"] is not FEATURE_COLS, (
+        "medium tier must be list(FEATURE_COLS), not FEATURE_COLS itself"
+    )
