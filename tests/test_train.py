@@ -358,3 +358,32 @@ def test_build_training_dataset_short_horizon_does_not_lose_recent_rows(tmp_path
         f"Expected ~{n-5} rows per ticker for 5d horizon, got {rows_per_ticker}. "
         "Likely still constrained by 252d label scope."
     )
+
+
+def test_feature_cols_includes_cyber_threat():
+    """FEATURE_COLS must contain all 7 CYBER_THREAT_FEATURE_COLS after integration."""
+    from models.train import FEATURE_COLS
+    from processing.cyber_threat_features import CYBER_THREAT_FEATURE_COLS
+    for col in CYBER_THREAT_FEATURE_COLS:
+        assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
+    assert len(FEATURE_COLS) == 55, f"Expected 55 features, got {len(FEATURE_COLS)}"
+
+
+def test_tier_short_includes_cyber_threat_7d_features():
+    """Short tier must include the 5 cyber threat _7d features, not the _30d ones."""
+    from models.train import TIER_FEATURE_COLS
+    short = TIER_FEATURE_COLS["short"]
+    short_cyber = ["cve_critical_7d", "cve_high_7d", "cisa_kev_7d", "otx_pulse_7d", "cyber_threat_index_7d"]
+    for col in short_cyber:
+        assert col in short, f"{col} missing from short tier"
+    # 30d features should NOT be in short tier
+    assert "cve_critical_30d" not in short
+    assert "cisa_kev_30d" not in short
+
+
+def test_tier_long_excludes_cyber_threat():
+    """Long tier must NOT include any cyber threat features."""
+    from models.train import TIER_FEATURE_COLS
+    from processing.cyber_threat_features import CYBER_THREAT_FEATURE_COLS
+    for col in CYBER_THREAT_FEATURE_COLS:
+        assert col not in TIER_FEATURE_COLS["long"], f"{col} should not be in long tier"

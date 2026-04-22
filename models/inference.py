@@ -41,6 +41,7 @@ from processing.price_features import build_price_features
 from processing.sentiment_features import join_sentiment_features
 from processing.short_interest_features import join_short_interest_features
 from processing.supply_chain_features import join_supply_chain_features
+from processing.cyber_threat_features import join_cyber_threat_features
 
 
 def _load_pickle(path: Path):
@@ -52,7 +53,7 @@ def _build_feature_df(
     date_str: str,
     data_dir: Path,
 ) -> pl.DataFrame:
-    """Build the 48-feature DataFrame for all tickers on date_str."""
+    """Build the 55-feature DataFrame for all tickers on date_str."""
     ohlcv_dir        = data_dir / "financials" / "ohlcv"
     fundamentals_dir = data_dir / "financials" / "fundamentals"
 
@@ -115,6 +116,9 @@ def _build_feature_df(
 
     df = join_supply_chain_features(df, ohlcv_dir=ohlcv_dir, fx_dir=ohlcv_dir.parent / "fx")
     df = join_fx_features(df, ohlcv_dir=ohlcv_dir)
+
+    cyber_threat_dir = data_dir / "cyber_threat"
+    df = join_cyber_threat_features(df, cyber_threat_dir)
 
     return df
 

@@ -38,6 +38,7 @@ from processing.price_features import build_price_features
 from processing.sentiment_features import join_sentiment_features
 from processing.short_interest_features import join_short_interest_features
 from processing.supply_chain_features import join_supply_chain_features
+from processing.cyber_threat_features import CYBER_THREAT_FEATURE_COLS, join_cyber_threat_features
 from ingestion.ticker_registry import LAYER_IDS, tickers_in_layer, layers as all_layers
 
 _LOG = logging.getLogger(__name__)
@@ -107,7 +108,8 @@ FEATURE_COLS = (
     + SENTIMENT_FEATURE_COLS + SHORT_INTEREST_FEATURE_COLS
     + EARNINGS_FEATURE_COLS + GRAPH_FEATURE_COLS
     + OWNERSHIP_FEATURE_COLS + ENERGY_FEATURE_COLS
-    + SUPPLY_CHAIN_FEATURE_COLS + FX_FEATURE_COLS  # 47 → 48 features total
+    + SUPPLY_CHAIN_FEATURE_COLS + FX_FEATURE_COLS
+    + CYBER_THREAT_FEATURE_COLS  # 48 → 55 features total
 )
 
 # ── Horizon registry ──────────────────────────────────────────────────────────
@@ -122,14 +124,19 @@ HORIZON_CONFIGS: dict[str, dict] = {
     "5040d":{"shift": 5040, "tier": "long"},
 }
 
+# The 5 cyber threat features with 7d windows belong in short + medium tiers.
+# The 30d features (cve_critical_30d, cisa_kev_30d) are medium-only.
+_CYBER_THREAT_SHORT_COLS = [c for c in CYBER_THREAT_FEATURE_COLS if c.endswith("_7d")]
+
 TIER_FEATURE_COLS: dict[str, list[str]] = {
     "short": (
         PRICE_FEATURE_COLS
         + SENTIMENT_FEATURE_COLS
         + INSIDER_FEATURE_COLS
         + SHORT_INTEREST_FEATURE_COLS
+        + _CYBER_THREAT_SHORT_COLS   # 5 features: *_7d only
     ),
-    "medium": FEATURE_COLS,
+    "medium": FEATURE_COLS,          # all 55 features
     "long": (
         PRICE_FEATURE_COLS
         + FUND_FEATURE_COLS
@@ -139,6 +146,7 @@ TIER_FEATURE_COLS: dict[str, list[str]] = {
         + ENERGY_FEATURE_COLS
         + SUPPLY_CHAIN_FEATURE_COLS
         + FX_FEATURE_COLS
+        # cyber threat features excluded — noise at year+ horizons
     ),
 }
 
@@ -308,6 +316,10 @@ def build_training_dataset(
 
     df = join_supply_chain_features(df, ohlcv_dir=ohlcv_dir, fx_dir=ohlcv_dir.parent / "fx")
     df = join_fx_features(df, ohlcv_dir=ohlcv_dir)
+
+    # Join cyber threat regime features (date-keyed market-wide signals)
+    cyber_threat_dir = fundamentals_dir.parent.parent / "cyber_threat"
+    df = join_cyber_threat_features(df, cyber_threat_dir)
 
     if horizon_tag is not None:
         return (
