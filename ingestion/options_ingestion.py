@@ -84,7 +84,7 @@ class YFinanceOptionsSource:
                             "date": fetch_date,
                             "expiry": expiry_date,
                             "option_type": opt_type,
-                            "strike": float(row.get("strike", 0.0) or 0.0),
+                            "strike": 0.0 if pd.isna(row.get("strike")) else float(row["strike"]),
                             "iv": 0.0 if pd.isna(row.get("impliedVolatility")) else float(row["impliedVolatility"]),
                             "oi": 0 if pd.isna(row.get("openInterest")) else int(row["openInterest"]),
                             "volume": 0 if pd.isna(row.get("volume")) else int(row["volume"]),
