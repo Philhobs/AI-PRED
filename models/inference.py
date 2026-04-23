@@ -44,6 +44,7 @@ from processing.supply_chain_features import join_supply_chain_features
 from processing.cyber_threat_features import join_cyber_threat_features
 from processing.options_features import join_options_features
 from processing.gov_behavioral_features import join_gov_behavioral_features
+from processing.patent_features import join_patent_features
 
 
 def _load_pickle(path: Path):
@@ -55,7 +56,7 @@ def _build_feature_df(
     date_str: str,
     data_dir: Path,
 ) -> pl.DataFrame:
-    """Build the 67-feature DataFrame for all tickers on date_str."""
+    """Build the 73-feature DataFrame for all tickers on date_str."""
     ohlcv_dir        = data_dir / "financials" / "ohlcv"
     fundamentals_dir = data_dir / "financials" / "fundamentals"
 
@@ -128,6 +129,10 @@ def _build_feature_df(
     gov_contracts_dir = data_dir / "gov_contracts"
     gov_ferc_dir = data_dir / "ferc_queue"
     df = join_gov_behavioral_features(df, gov_contracts_dir, gov_ferc_dir)
+
+    patents_apps_dir = data_dir / "patents" / "applications"
+    patents_grants_dir = data_dir / "patents" / "grants"
+    df = join_patent_features(df, patents_apps_dir, patents_grants_dir)
 
     return df
 
