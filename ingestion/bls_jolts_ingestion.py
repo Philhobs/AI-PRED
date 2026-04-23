@@ -4,6 +4,9 @@ Fetches Computer & Electronic Products (NAICS 334) job openings from BLS API v2.
 Series: JTS510000000000000JOL (job openings level, thousands, seasonally adjusted)
 Output: data/raw/bls_jolts/date=YYYY-MM-DD/openings.parquet
 
+Fetches current year + prior year (BLS API uses full calendar years, not rolling windows).
+Feature module filters rows by period_date <= query_date at join time.
+
 Staleness guard: skips re-download if existing snapshot is from the same calendar month
 (BLS JOLTS publishes monthly data with ~6-week publication lag).
 """
@@ -29,6 +32,8 @@ _SCHEMA = {
     "period": pl.Utf8,
     "value": pl.Float64,
 }
+
+_MONTHLY_PERIODS = {f"M{n:02d}" for n in range(1, 13)}  # M01–M12
 
 
 def _same_month(existing_dir: Path, today_str: str) -> bool:
@@ -71,7 +76,7 @@ def fetch_jolts(date_str: str) -> pl.DataFrame:
     rows = []
     for entry in series_list[0].get("data", []):
         period = entry.get("period", "")
-        if not (period.startswith("M") and period != "M13"):
+        if period not in _MONTHLY_PERIODS:
             continue
         try:
             year = int(entry["year"])
@@ -103,7 +108,9 @@ def ingest_bls_jolts(date_str: str, output_dir: Path) -> None:
 
     _LOG.info("BLS JOLTS: fetching tech sector job openings for %s", date_str)
     df = fetch_jolts(date_str)
-    if not df.is_empty():
+    if df.is_empty():
+        _LOG.info("BLS JOLTS: API returned no data rows for %s — nothing written", date_str)
+    else:
         out = output_dir / f"date={date_str}"
         out.mkdir(parents=True, exist_ok=True)
         df.write_parquet(out / "openings.parquet", compression="snappy")

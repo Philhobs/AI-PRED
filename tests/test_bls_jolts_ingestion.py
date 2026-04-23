@@ -68,6 +68,22 @@ def test_same_month_snapshot_skipped(tmp_path):
     mock_post.assert_not_called()
 
 
+def test_different_month_snapshot_not_skipped(tmp_path):
+    """ingest_bls_jolts re-downloads when existing snapshot is from a different calendar month."""
+    from ingestion.bls_jolts_ingestion import ingest_bls_jolts
+
+    # Existing snapshot from March 2024 — April 2024 run should NOT skip
+    existing = tmp_path / "date=2024-03-15"
+    existing.mkdir()
+    pl.DataFrame(schema=_SCHEMA).write_parquet(existing / "openings.parquet")
+
+    resp = _make_jolts_response([_ONE_ROW])
+    with patch("ingestion.bls_jolts_ingestion.requests.post", return_value=resp) as mock_post:
+        ingest_bls_jolts("2024-04-01", tmp_path)
+
+    mock_post.assert_called_once()
+
+
 def test_empty_series_no_file_written(tmp_path):
     """When API returns no data rows, no parquet file is written."""
     from ingestion.bls_jolts_ingestion import ingest_bls_jolts
