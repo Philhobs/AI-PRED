@@ -25,6 +25,7 @@ _GRANTS_URL = "https://api.patentsview.org/patents/query"
 _CPC_CODES = ["G06N", "H01L", "G06F", "G11C"]
 _PER_PAGE = 100
 _SLEEP_BETWEEN_PAGES = 1.5
+_MAX_PAGES = 200  # safety circuit breaker: ~20,000 records maximum
 
 _APP_SCHEMA = {
     "date": pl.Date, "assignee_name": pl.Utf8, "app_id": pl.Utf8,
@@ -51,7 +52,9 @@ def _same_iso_week(existing_dir: Path, today_str: str) -> bool:
     try:
         last_date = datetime.date.fromisoformat(last_date_str)
         today = datetime.date.fromisoformat(today_str)
-        return last_date.isocalendar().week == today.isocalendar().week and last_date.year == today.year
+        last_iso = last_date.isocalendar()
+        today_iso = today.isocalendar()
+        return last_iso.week == today_iso.week and last_iso.year == today_iso.year
     except ValueError:
         return False
 
@@ -75,7 +78,7 @@ def fetch_applications(date_str: str) -> pl.DataFrame:
             "f": ["app_id", "assignee_organization", "cpc_group_id", "app_date"],
             "o": {"per_page": _PER_PAGE, "page": page},
         }
-        resp = requests.post(_APPS_URL, json=payload)
+        resp = requests.post(_APPS_URL, json=payload, timeout=30)
         resp.raise_for_status()
         data = resp.json()
         batch = data.get("applications", [])
@@ -83,6 +86,9 @@ def fetch_applications(date_str: str) -> pl.DataFrame:
 
         total = data.get("total_app_count", 0)
         if len(records) >= total or not batch:
+            break
+        if page >= _MAX_PAGES:
+            _LOG.warning("USPTO: reached _MAX_PAGES=%d limit — result may be truncated", _MAX_PAGES)
             break
         time.sleep(_SLEEP_BETWEEN_PAGES)
         page += 1
@@ -127,7 +133,7 @@ def fetch_grants(date_str: str) -> pl.DataFrame:
             "f": ["patent_id", "assignee_organization", "cpc_group_id", "patent_date", "cited_by_count"],
             "o": {"per_page": _PER_PAGE, "page": page},
         }
-        resp = requests.post(_GRANTS_URL, json=payload)
+        resp = requests.post(_GRANTS_URL, json=payload, timeout=30)
         resp.raise_for_status()
         data = resp.json()
         batch = data.get("patents", [])
@@ -135,6 +141,9 @@ def fetch_grants(date_str: str) -> pl.DataFrame:
 
         total = data.get("total_patent_count", 0)
         if len(records) >= total or not batch:
+            break
+        if page >= _MAX_PAGES:
+            _LOG.warning("USPTO: reached _MAX_PAGES=%d limit — result may be truncated", _MAX_PAGES)
             break
         time.sleep(_SLEEP_BETWEEN_PAGES)
         page += 1
@@ -149,13 +158,17 @@ def fetch_grants(date_str: str) -> pl.DataFrame:
             grant_d = datetime.date.fromisoformat(r["patent_date"])
         except (KeyError, TypeError, ValueError):
             continue
+        try:
+            citation_count = int(r.get("cited_by_count") or 0)
+        except (TypeError, ValueError):
+            citation_count = 0
         rows.append({
             "date": run_date,
             "assignee_name": r.get("assignee_organization") or "",
             "patent_id": r.get("patent_id") or "",
             "cpc_group": r.get("cpc_group_id") or "",
             "grant_date": grant_d,
-            "forward_citation_count": int(r.get("cited_by_count") or 0),
+            "forward_citation_count": citation_count,
         })
 
     return pl.DataFrame(rows, schema=_GRANT_SCHEMA)

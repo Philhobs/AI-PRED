@@ -4,15 +4,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-
-_APP_SCHEMA = {
-    "date": pl.Date, "assignee_name": pl.Utf8, "app_id": pl.Utf8,
-    "cpc_group": pl.Utf8, "filing_date": pl.Date,
-}
-_GRANT_SCHEMA = {
-    "date": pl.Date, "assignee_name": pl.Utf8, "patent_id": pl.Utf8,
-    "cpc_group": pl.Utf8, "grant_date": pl.Date, "forward_citation_count": pl.Int32,
-}
+from ingestion.uspto_ingestion import _APP_SCHEMA, _GRANT_SCHEMA
 
 _ONE_APP = {
     "app_id": "APP001",
@@ -36,7 +28,7 @@ def _make_response(records: list[dict], total: int, key: str) -> MagicMock:
     return mock
 
 
-def test_applications_schema_correct(tmp_path):
+def test_applications_schema_correct():
     """Parquet written by fetch_applications matches _APP_SCHEMA."""
     from ingestion.uspto_ingestion import fetch_applications
 
@@ -51,7 +43,7 @@ def test_applications_schema_correct(tmp_path):
     assert df["cpc_group"][0] == "G06N"
 
 
-def test_grants_schema_correct(tmp_path):
+def test_grants_schema_correct():
     """Parquet written by fetch_grants matches _GRANT_SCHEMA."""
     from ingestion.uspto_ingestion import fetch_grants
 
