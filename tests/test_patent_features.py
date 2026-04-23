@@ -3,15 +3,7 @@ import polars as pl
 import pytest
 from pathlib import Path
 
-
-_APP_SCHEMA = {
-    "date": pl.Date, "assignee_name": pl.Utf8, "app_id": pl.Utf8,
-    "cpc_group": pl.Utf8, "filing_date": pl.Date,
-}
-_GRANT_SCHEMA = {
-    "date": pl.Date, "assignee_name": pl.Utf8, "patent_id": pl.Utf8,
-    "cpc_group": pl.Utf8, "grant_date": pl.Date, "forward_citation_count": pl.Int32,
-}
+from processing.patent_features import _APP_SCHEMA, _GRANT_SCHEMA
 
 
 def _write_apps(apps_dir: Path, rows: list[dict]) -> None:
@@ -79,7 +71,30 @@ def test_patent_app_momentum_positive(tmp_path):
     ])
 
     df = join_patent_features(_query_df("NVDA", _QUERY_DATE), apps_dir, grants_dir)
-    assert df["patent_app_momentum"][0] > 0
+    assert df["patent_app_momentum"][0] == pytest.approx(1.0)
+
+
+def test_patent_app_momentum_negative(tmp_path):
+    """patent_app_momentum is negative when prior 90d count > recent 90d count."""
+    from processing.patent_features import join_patent_features
+
+    apps_dir = tmp_path / "applications"
+    grants_dir = tmp_path / "grants"
+
+    # 1 app in recent 90d, 3 apps in prior 90d → momentum = -2
+    _write_apps(apps_dir, [
+        {"date": _QUERY_DATE, "assignee_name": "NVIDIA Corporation",
+         "app_id": "A1", "cpc_group": "G06N", "filing_date": _RECENT},
+        {"date": _QUERY_DATE, "assignee_name": "NVIDIA Corporation",
+         "app_id": "A2", "cpc_group": "G06N", "filing_date": _PRIOR},
+        {"date": _QUERY_DATE, "assignee_name": "NVIDIA Corporation",
+         "app_id": "A3", "cpc_group": "H01L", "filing_date": _PRIOR},
+        {"date": _QUERY_DATE, "assignee_name": "NVIDIA Corporation",
+         "app_id": "A4", "cpc_group": "G06F", "filing_date": _PRIOR},
+    ])
+
+    df = join_patent_features(_query_df("NVDA", _QUERY_DATE), apps_dir, grants_dir)
+    assert df["patent_app_momentum"][0] == pytest.approx(-2.0)
 
 
 def test_patent_grant_count_365d(tmp_path):
@@ -121,6 +136,31 @@ def test_patent_grant_rate_zero_safe(tmp_path):
 
     df = join_patent_features(_query_df("NVDA", _QUERY_DATE), apps_dir, grants_dir)
     assert df["patent_grant_rate_365d"][0] == pytest.approx(1.0)
+
+
+def test_patent_grant_rate_less_than_one(tmp_path):
+    """patent_grant_rate_365d correctly computes ratio when grants < apps."""
+    from processing.patent_features import join_patent_features
+
+    apps_dir = tmp_path / "applications"
+    grants_dir = tmp_path / "grants"
+
+    # 4 apps in 365d, 2 grants in 365d → rate = 2/4 = 0.5
+    _write_apps(apps_dir, [
+        {"date": _QUERY_DATE, "assignee_name": "NVIDIA Corporation",
+         "app_id": f"A{i}", "cpc_group": "G06N",
+         "filing_date": datetime.date(2024, 1, i + 1)}
+        for i in range(4)
+    ])
+    _write_grants(grants_dir, [
+        {"date": _QUERY_DATE, "assignee_name": "NVIDIA Corporation",
+         "patent_id": f"P{i}", "cpc_group": "G06N",
+         "grant_date": datetime.date(2024, 2, i + 1), "forward_citation_count": 0}
+        for i in range(2)
+    ])
+
+    df = join_patent_features(_query_df("NVDA", _QUERY_DATE), apps_dir, grants_dir)
+    assert df["patent_grant_rate_365d"][0] == pytest.approx(0.5)
 
 
 def test_patent_ai_cpc_share_isolates_g06n(tmp_path):

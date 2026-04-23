@@ -210,14 +210,7 @@ def join_patent_features(
                     WHEN g.grant_date >= q.date - INTERVAL 365 DAY
                          AND g.grant_date <= q.date
                     THEN CAST(g.forward_citation_count AS DOUBLE) ELSE 0.0 END), 0.0)
-                    AS patent_citation_count_365d,
-
-                -- _grants_365d for rate calculation
-                COALESCE(CAST(SUM(CASE
-                    WHEN g.grant_date >= q.date - INTERVAL 365 DAY
-                         AND g.grant_date <= q.date
-                    THEN 1 ELSE 0 END) AS DOUBLE), 0.0)
-                    AS _grants_365d
+                    AS patent_citation_count_365d
 
             FROM query_pairs q
             LEFT JOIN grants g
@@ -227,12 +220,12 @@ def join_patent_features(
             GROUP BY q.ticker, q.date
         """).pl()
 
-    # Compute grant_rate_365d = _grants_365d / GREATEST(_apps_365d, 1.0)
+    # Compute grant_rate_365d = patent_grant_count_365d / GREATEST(_apps_365d, 1.0)
     combined = app_result.join(grant_result, on=["ticker", "date"], how="left")
     combined = combined.with_columns(
-        (pl.col("_grants_365d") / pl.col("_apps_365d").clip(lower_bound=1.0))
+        (pl.col("patent_grant_count_365d") / pl.col("_apps_365d").clip(lower_bound=1.0))
         .alias("patent_grant_rate_365d")
-    ).drop(["_apps_365d", "_grants_365d"])
+    ).drop(["_apps_365d"])
 
     # Left-join features back to original df
     df = df.join(combined, on=["ticker", "date"], how="left")
