@@ -336,6 +336,7 @@ def join_gov_behavioral_features(
         for col in ["gov_ai_spend_30d", "ferc_queue_mw_30d", "ferc_grid_constraint_score"]:
             df = df.with_columns(pl.lit(0.0).cast(pl.Float64).alias(col))
 
+    # Final zero-fill backstop: catches nulls from partial left-joins and missing dates.
     for col in GOV_BEHAVIORAL_FEATURE_COLS:
         df = df.with_columns(pl.col(col).fill_null(0.0))
 

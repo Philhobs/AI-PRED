@@ -366,7 +366,6 @@ def test_feature_cols_includes_cyber_threat():
     from processing.cyber_threat_features import CYBER_THREAT_FEATURE_COLS
     for col in CYBER_THREAT_FEATURE_COLS:
         assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
-    assert len(FEATURE_COLS) == 67, f"Expected 67 features, got {len(FEATURE_COLS)}"
 
 
 def test_tier_short_includes_cyber_threat_7d_features():
@@ -392,7 +391,7 @@ def test_tier_long_excludes_cyber_threat():
 # ── Options signals integration ────────────────────────────────────────────────
 
 def test_feature_cols_has_67_elements():
-    """FEATURE_COLS must have exactly 67 elements after adding GOV_BEHAVIORAL_FEATURE_COLS."""
+    """FEATURE_COLS must have exactly 67 elements after full feature set integration."""
     from models.train import FEATURE_COLS
     assert len(FEATURE_COLS) == 67, f"Expected 67 features, got {len(FEATURE_COLS)}"
 
