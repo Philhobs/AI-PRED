@@ -40,6 +40,7 @@ from processing.short_interest_features import join_short_interest_features
 from processing.supply_chain_features import join_supply_chain_features
 from processing.cyber_threat_features import CYBER_THREAT_FEATURE_COLS, join_cyber_threat_features
 from processing.options_features import OPTIONS_FEATURE_COLS, join_options_features
+from processing.gov_behavioral_features import GOV_BEHAVIORAL_FEATURE_COLS, join_gov_behavioral_features
 from ingestion.ticker_registry import LAYER_IDS, tickers_in_layer, layers as all_layers
 
 _LOG = logging.getLogger(__name__)
@@ -112,6 +113,7 @@ FEATURE_COLS = (
     + SUPPLY_CHAIN_FEATURE_COLS + FX_FEATURE_COLS
     + CYBER_THREAT_FEATURE_COLS  # 48 → 55 features total
     + OPTIONS_FEATURE_COLS       # 55 → 61 features total
+    + GOV_BEHAVIORAL_FEATURE_COLS  # 61 → 67 features total
 )
 
 # ── Horizon registry ──────────────────────────────────────────────────────────
@@ -149,6 +151,7 @@ TIER_FEATURE_COLS: dict[str, list[str]] = {
         + ENERGY_FEATURE_COLS
         + SUPPLY_CHAIN_FEATURE_COLS
         + FX_FEATURE_COLS
+        + GOV_BEHAVIORAL_FEATURE_COLS  # contract award cycles relevant at year+ horizons
         # cyber threat features excluded — noise at year+ horizons
     ),
 }
@@ -327,6 +330,11 @@ def build_training_dataset(
     # Join options-derived features (ticker-specific, joined by (ticker, date))
     options_dir = fundamentals_dir.parent.parent / "options"
     df = join_options_features(df, options_dir, ohlcv_dir)
+
+    # Join government behavioral features (SAM.gov contracts + FERC queue)
+    gov_contracts_dir = fundamentals_dir.parent.parent / "gov_contracts"
+    gov_ferc_dir = fundamentals_dir.parent.parent / "ferc_queue"
+    df = join_gov_behavioral_features(df, gov_contracts_dir, gov_ferc_dir)
 
     if horizon_tag is not None:
         return (

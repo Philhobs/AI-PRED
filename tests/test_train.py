@@ -163,7 +163,7 @@ def test_feature_cols_contains_fx():
 
 
 def test_tier_feature_cols_medium_equals_feature_cols():
-    """TIER_FEATURE_COLS['medium'] must be identical to FEATURE_COLS (61 features)."""
+    """TIER_FEATURE_COLS['medium'] must be identical to FEATURE_COLS (67 features)."""
     from models.train import FEATURE_COLS, TIER_FEATURE_COLS
     assert TIER_FEATURE_COLS["medium"] == FEATURE_COLS
 
@@ -366,7 +366,7 @@ def test_feature_cols_includes_cyber_threat():
     from processing.cyber_threat_features import CYBER_THREAT_FEATURE_COLS
     for col in CYBER_THREAT_FEATURE_COLS:
         assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
-    assert len(FEATURE_COLS) == 61, f"Expected 61 features, got {len(FEATURE_COLS)}"
+    assert len(FEATURE_COLS) == 67, f"Expected 67 features, got {len(FEATURE_COLS)}"
 
 
 def test_tier_short_includes_cyber_threat_7d_features():
@@ -391,10 +391,10 @@ def test_tier_long_excludes_cyber_threat():
 
 # ── Options signals integration ────────────────────────────────────────────────
 
-def test_feature_cols_has_61_elements():
-    """FEATURE_COLS must have exactly 61 elements after adding OPTIONS_FEATURE_COLS."""
+def test_feature_cols_has_67_elements():
+    """FEATURE_COLS must have exactly 67 elements after adding GOV_BEHAVIORAL_FEATURE_COLS."""
     from models.train import FEATURE_COLS
-    assert len(FEATURE_COLS) == 61, f"Expected 61 features, got {len(FEATURE_COLS)}"
+    assert len(FEATURE_COLS) == 67, f"Expected 67 features, got {len(FEATURE_COLS)}"
 
 
 def test_options_feature_cols_in_feature_cols():
@@ -438,3 +438,60 @@ def test_medium_tier_is_copy_of_feature_cols():
     assert TIER_FEATURE_COLS["medium"] is not FEATURE_COLS, (
         "medium tier must be list(FEATURE_COLS), not FEATURE_COLS itself"
     )
+
+
+def test_feature_cols_includes_gov_behavioral():
+    """FEATURE_COLS must contain all 6 GOV_BEHAVIORAL_FEATURE_COLS after integration."""
+    from models.train import FEATURE_COLS
+    from processing.gov_behavioral_features import GOV_BEHAVIORAL_FEATURE_COLS
+    assert len(GOV_BEHAVIORAL_FEATURE_COLS) == 6
+    for col in GOV_BEHAVIORAL_FEATURE_COLS:
+        assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
+    assert len(FEATURE_COLS) == 67, f"Expected 67 features, got {len(FEATURE_COLS)}"
+
+
+def test_gov_behavioral_cols_absent_from_short_tier():
+    """GOV cols must not be in short tier — contract award cycles too slow for 5d/20d."""
+    from models.train import TIER_FEATURE_COLS
+    from processing.gov_behavioral_features import GOV_BEHAVIORAL_FEATURE_COLS
+    short = set(TIER_FEATURE_COLS["short"])
+    for col in GOV_BEHAVIORAL_FEATURE_COLS:
+        assert col not in short, f"{col} must not be in short tier"
+
+
+def test_gov_behavioral_cols_in_medium_tier():
+    """GOV cols must be present in medium tier."""
+    from models.train import TIER_FEATURE_COLS
+    from processing.gov_behavioral_features import GOV_BEHAVIORAL_FEATURE_COLS
+    medium = TIER_FEATURE_COLS["medium"]
+    for col in GOV_BEHAVIORAL_FEATURE_COLS:
+        assert col in medium, f"{col} missing from medium tier"
+
+
+def test_gov_behavioral_cols_in_long_tier():
+    """GOV cols must be present in long tier."""
+    from models.train import TIER_FEATURE_COLS
+    from processing.gov_behavioral_features import GOV_BEHAVIORAL_FEATURE_COLS
+    long_cols = TIER_FEATURE_COLS["long"]
+    for col in GOV_BEHAVIORAL_FEATURE_COLS:
+        assert col in long_cols, f"{col} missing from long tier"
+
+
+def test_gov_behavioral_col_names_are_correct():
+    """GOV_BEHAVIORAL_FEATURE_COLS must contain exactly the 6 expected column names."""
+    from processing.gov_behavioral_features import GOV_BEHAVIORAL_FEATURE_COLS
+    expected = {
+        "gov_contract_value_90d",
+        "gov_contract_count_90d",
+        "gov_contract_momentum",
+        "gov_ai_spend_30d",
+        "ferc_queue_mw_30d",
+        "ferc_grid_constraint_score",
+    }
+    assert set(GOV_BEHAVIORAL_FEATURE_COLS) == expected
+
+
+def test_tier_medium_equals_feature_cols_after_gov_integration():
+    """TIER_FEATURE_COLS['medium'] must still equal full FEATURE_COLS (now 67)."""
+    from models.train import FEATURE_COLS, TIER_FEATURE_COLS
+    assert TIER_FEATURE_COLS["medium"] == FEATURE_COLS
