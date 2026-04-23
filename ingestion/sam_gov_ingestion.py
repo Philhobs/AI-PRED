@@ -75,13 +75,12 @@ class SamGovSource:
 
         while True:
             params = {
-                "api_key": api_key,
                 "limit": limit,
                 "offset": offset,
                 "awardDateRange": f"{start},{as_of}",
                 "naicsCode": _NAICS_CODES,
             }
-            resp = requests.get(_SAM_GOV_BASE_URL, params=params, timeout=30)
+            resp = requests.get(_SAM_GOV_BASE_URL, headers={"X-Api-Key": api_key}, params=params, timeout=30)
             resp.raise_for_status()
             data = resp.json()
 

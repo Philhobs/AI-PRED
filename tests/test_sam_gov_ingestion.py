@@ -125,6 +125,9 @@ def test_naics_filter_in_request(tmp_path):
     assert call_params["naicsCode"] == _NAICS_CODES
     assert "541511" in call_params["naicsCode"]
     assert "334413" in call_params["naicsCode"]
+    assert "api_key" not in call_params
+    call_headers = mock_get.call_args[1]["headers"]
+    assert call_headers.get("X-Api-Key") == "test-key"
 
 
 def test_date_range_covers_90_days(tmp_path):
