@@ -102,7 +102,7 @@ def test_gov_contract_momentum_positive_when_recent_exceeds_prior(tmp_path):
 
 
 def test_gov_ai_spend_30d_sums_all_awardees(tmp_path):
-    """gov_ai_spend_30d is market-wide: sums all awardee contract values in 30-day window."""
+    """gov_ai_spend_30d sums only AI/DC NAICS contract values (not all vendors) in 30-day window."""
     from processing.gov_behavioral_features import join_gov_behavioral_features
 
     contracts_dir = tmp_path / "gov_contracts"
@@ -114,6 +114,8 @@ def test_gov_ai_spend_30d_sums_all_awardees(tmp_path):
          "contract_value_usd": 1000.0, "naics_code": "518210", "agency": "DOD"},
         {"date": d, "awardee_name": "Some Unmatched Company LLC", "uei": "U9",
          "contract_value_usd": 2000.0, "naics_code": "541511", "agency": "DHS"},
+        {"date": d, "awardee_name": "Unrelated Vendor Inc", "uei": "U10",
+         "contract_value_usd": 9999.0, "naics_code": "999999", "agency": "DOD"},
     ])
 
     result = join_gov_behavioral_features(_input_df(["NVDA"], [d]), contracts_dir, ferc_dir)
@@ -135,6 +137,8 @@ def test_ferc_queue_mw_30d_sums_dc_state_mw(tmp_path):
          "mw": 300.0, "state": "VA", "fuel": "Solar", "status": "Active", "iso": "PJM"},
         {"snapshot_date": snapshot, "queue_date": queue_d, "project_name": "Wind TX",
          "mw": 200.0, "state": "TX", "fuel": "Wind", "status": "Active", "iso": "ERCOT"},
+        {"snapshot_date": snapshot, "queue_date": queue_d, "project_name": "Offshore CA",
+         "mw": 1000.0, "state": "CA", "fuel": "Wind", "status": "Active", "iso": "CAISO"},
     ])
 
     query_date = datetime.date(2024, 1, 20)

@@ -37,7 +37,7 @@ GOV_BEHAVIORAL_FEATURE_COLS: list[str] = [
 GOV_TICKER_OVERRIDE_MAP: dict[str, str] = {
     "GOOGL": "Alphabet",
     "META":  "Meta Platforms",
-    "MSFT":  "Microsoft",
+    "MSFT":  "Microsoft Corporation",
     "AMZN":  "Amazon Web Services",
     "TSM":   "Taiwan Semiconductor",
 }
@@ -65,6 +65,10 @@ _LEGAL_SUFFIXES = (
     " llc", " ltd", " limited", " co", " company",
     " holdings", " technologies", " systems", " solutions",
 )
+
+_AI_NAICS_CODES = {"541511", "541512", "541519", "518210", "334413"}
+
+_DC_STATES = {"VA", "TX", "OH", "AZ", "NV", "OR", "GA", "WA"}
 
 
 def _normalize_name(name: str) -> str:
@@ -215,9 +219,10 @@ def _build_market_features(
     con.register("query_date_df", query_date_df.to_arrow())
 
     # Market-wide SAM.gov 30-day rolling sum
-    if not raw_contracts.is_empty():
+    ai_contracts = raw_contracts.filter(pl.col("naics_code").is_in(_AI_NAICS_CODES))
+    if not ai_contracts.is_empty():
         market_daily = (
-            raw_contracts
+            ai_contracts
             .group_by("date")
             .agg(pl.col("contract_value_usd").sum().alias("daily_total"))
         )
@@ -238,9 +243,10 @@ def _build_market_features(
     ferc_df: pl.DataFrame
     if not raw_ferc.is_empty() and "queue_date" in raw_ferc.columns:
         ferc_valid = raw_ferc.filter(pl.col("queue_date").is_not_null())
-        if not ferc_valid.is_empty():
+        ferc_dc = ferc_valid.filter(pl.col("state").is_in(_DC_STATES))
+        if not ferc_dc.is_empty():
             ferc_daily = (
-                ferc_valid
+                ferc_dc
                 .rename({"queue_date": "date"})
                 .group_by("date")
                 .agg(pl.col("mw").sum().alias("daily_mw"))
