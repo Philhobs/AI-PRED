@@ -36,7 +36,12 @@ def _load_postings(usajobs_dir: Path) -> pl.DataFrame:
     files = sorted(usajobs_dir.glob("date=*/postings.parquet")) if usajobs_dir.exists() else []
     if not files:
         return pl.DataFrame(schema=_POSTING_SCHEMA)
-    return pl.concat([pl.read_parquet(f) for f in files])
+    # Dedup: a posting active across multiple weekly snapshots should count once
+    return (
+        pl.concat([pl.read_parquet(f) for f in files])
+        .sort("date")
+        .unique(subset=["posting_id"], keep="last")
+    )
 
 
 def _load_jolts(jolts_dir: Path) -> pl.DataFrame:

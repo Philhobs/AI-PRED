@@ -1,6 +1,6 @@
 """BLS JOLTS tech sector job openings ingestion.
 
-Fetches Computer & Electronic Products (NAICS 334) job openings from BLS API v2.
+Fetches Information sector (NAICS 51) job openings from BLS API v2.
 Series: JTS510000000000000JOL (job openings level, thousands, seasonally adjusted)
 Output: data/raw/bls_jolts/date=YYYY-MM-DD/openings.parquet
 
