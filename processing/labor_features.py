@@ -19,6 +19,9 @@ from pathlib import Path
 import duckdb
 import polars as pl
 
+from ingestion.usajobs_ingestion import _SCHEMA as _POSTING_SCHEMA
+from ingestion.bls_jolts_ingestion import _SCHEMA as _JOLTS_SCHEMA
+
 _LOG = logging.getLogger(__name__)
 
 LABOR_FEATURE_COLS: list[str] = [
@@ -27,15 +30,6 @@ LABOR_FEATURE_COLS: list[str] = [
     "tech_job_openings_index",
     "tech_job_openings_momentum",
 ]
-
-_POSTING_SCHEMA = {
-    "date": pl.Date, "posting_id": pl.Utf8, "title": pl.Utf8,
-    "posted_date": pl.Date, "keyword": pl.Utf8,
-}
-_JOLTS_SCHEMA = {
-    "date": pl.Date, "series_id": pl.Utf8, "year": pl.Int32,
-    "period": pl.Utf8, "value": pl.Float64,
-}
 
 
 def _load_postings(usajobs_dir: Path) -> pl.DataFrame:
@@ -136,9 +130,11 @@ def join_labor_features(
                     date,
                     COALESCE(MAX(CASE WHEN rn = 1 THEN value END), 0.0)
                         AS tech_job_openings_index,
-                    COALESCE(MAX(CASE WHEN rn = 1 THEN value END), 0.0)
-                        - COALESCE(MAX(CASE WHEN rn = 2 THEN value END), 0.0)
-                    AS tech_job_openings_momentum
+                    CASE
+                        WHEN MAX(CASE WHEN rn = 2 THEN value END) IS NULL THEN 0.0
+                        ELSE MAX(CASE WHEN rn = 1 THEN value END)
+                           - MAX(CASE WHEN rn = 2 THEN value END)
+                    END AS tech_job_openings_momentum
                 FROM ranked
                 GROUP BY date
             """).pl()
@@ -149,10 +145,9 @@ def join_labor_features(
                 "tech_job_openings_momentum": pl.Float64,
             })
 
-    # Join both feature sets back to query_dates, then to original df
-    result = query_dates.join(usajobs_result, on="date", how="left")
-    result = result.join(jolts_result, on="date", how="left")
-    df = df.join(result, on="date", how="left")
+    # Join both feature sets directly to original df
+    df = df.join(usajobs_result, on="date", how="left")
+    df = df.join(jolts_result, on="date", how="left")
 
     # Zero-fill backstop: catches nulls from partial joins and empty windows
     for col in LABOR_FEATURE_COLS:

@@ -118,6 +118,24 @@ def test_tech_job_openings_momentum(tmp_path):
     assert df["tech_job_openings_momentum"][0] == pytest.approx(20.0)
 
 
+def test_tech_job_openings_momentum_single_row_zero(tmp_path):
+    """tech_job_openings_momentum is 0.0 when only one JOLTS month is available."""
+    from processing.labor_features import join_labor_features
+
+    usajobs_dir = tmp_path / "usajobs"
+    jolts_dir = tmp_path / "bls_jolts"
+
+    # Only one month available — no prior month to compute momentum
+    _write_jolts(jolts_dir, [
+        {"date": _QUERY_DATE, "series_id": "JTS510000000000000JOL",
+         "year": 2024, "period": "M03", "value": 120.0},
+    ])
+
+    df = join_labor_features(_query_df(_QUERY_DATE), usajobs_dir, jolts_dir)
+    assert df["tech_job_openings_index"][0] == pytest.approx(120.0)
+    assert df["tech_job_openings_momentum"][0] == pytest.approx(0.0)
+
+
 def test_join_adds_exactly_4_columns(tmp_path):
     """join_labor_features adds exactly 4 new columns."""
     from processing.labor_features import join_labor_features, LABOR_FEATURE_COLS
