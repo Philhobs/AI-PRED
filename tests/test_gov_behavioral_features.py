@@ -7,6 +7,7 @@ from pathlib import Path
 def _write_contracts(contracts_dir: Path, rows: list[dict]) -> None:
     if not rows:
         return
+    assert len({r["date"] for r in rows}) == 1, "All rows must share the same date"
     date_str = rows[0]["date"].isoformat()
     out_dir = contracts_dir / f"date={date_str}"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -19,6 +20,7 @@ def _write_contracts(contracts_dir: Path, rows: list[dict]) -> None:
 def _write_ferc(ferc_dir: Path, rows: list[dict]) -> None:
     if not rows:
         return
+    assert len({r["snapshot_date"] for r in rows}) == 1, "All rows must share the same snapshot_date"
     date_str = rows[0]["snapshot_date"].isoformat()
     out_dir = ferc_dir / f"date={date_str}"
     out_dir.mkdir(parents=True, exist_ok=True)

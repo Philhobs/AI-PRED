@@ -3,10 +3,10 @@
 Features (GOV_BEHAVIORAL_FEATURE_COLS):
     gov_contract_value_90d    — rolling 90-day USD awards sum for the ticker's company
     gov_contract_count_90d    — rolling 90-day award count for the ticker's company
-    gov_contract_momentum     — (2 * 30d_sum) - 90d_sum  (positive = accelerating)
+    gov_contract_momentum     — 30d award value minus prior 60d (positive = accelerating)
     gov_ai_spend_30d          — market-wide rolling 30-day AI/DC NAICS award total
     ferc_queue_mw_30d         — rolling 30-day MW filed in DC power states
-    ferc_grid_constraint_score — ferc_queue_mw_30d / (365d_total / 12), clipped at 1.0 floor
+    ferc_grid_constraint_score — ferc_queue_mw_30d / (365d_total / 12), denominator floored at 1.0
 
 Ticker-specific features joined on (ticker, date); market-wide joined on date only.
 All features zero-filled when data is absent.
@@ -114,6 +114,7 @@ def _load_ferc(ferc_dir: Path) -> pl.DataFrame:
             "status": pl.Utf8, "iso": pl.Utf8,
         })
     raw = pl.concat([pl.read_parquet(f) for f in files])
+    # Sort so unique(keep="last") retains the most recent snapshot_date per project entry.
     return raw.sort("snapshot_date").unique(subset=["project_name", "queue_date"], keep="last")
 
 
@@ -143,11 +144,14 @@ def _build_ticker_features(
     if not awardee_to_ticker:
         return pl.DataFrame(schema=_empty_schema)
 
-    matched = raw.with_columns(
-        pl.col("awardee_name")
-        .map_elements(lambda n: awardee_to_ticker.get(n), return_dtype=pl.Utf8)
-        .alias("ticker")
-    ).filter(pl.col("ticker").is_not_null())
+    mapping_df = pl.DataFrame(
+        {"awardee_name": list(awardee_to_ticker.keys()),
+         "ticker": list(awardee_to_ticker.values())},
+        schema={"awardee_name": pl.Utf8, "ticker": pl.Utf8},
+    )
+    matched = raw.join(mapping_df, on="awardee_name", how="left").filter(
+        pl.col("ticker").is_not_null()
+    )
 
     if matched.is_empty():
         return pl.DataFrame(schema=_empty_schema)
@@ -165,34 +169,36 @@ def _build_ticker_features(
     # Extract unique (ticker, date) query pairs
     query_pairs = query_df.select(["ticker", "date"]).unique()
 
-    con = duckdb.connect()
-    con.register("daily", daily.to_arrow())
-    con.register("query_pairs", query_pairs.to_arrow())
+    with duckdb.connect() as con:
+        con.register("daily", daily.to_arrow())
+        con.register("query_pairs", query_pairs.to_arrow())
 
-    # Cross-join style: for each query (ticker, date), sum contracts in window
-    result = con.execute("""
-        SELECT
-            q.ticker,
-            q.date,
-            COALESCE(SUM(CASE WHEN d.date >= q.date - INTERVAL 90 DAY
-                              THEN d.daily_value ELSE 0 END), 0.0)
-                AS gov_contract_value_90d,
-            COALESCE(CAST(SUM(CASE WHEN d.date >= q.date - INTERVAL 90 DAY
-                                   THEN d.daily_count ELSE 0 END) AS DOUBLE), 0.0)
-                AS gov_contract_count_90d,
-            2.0 * COALESCE(SUM(CASE WHEN d.date >= q.date - INTERVAL 30 DAY
-                                    THEN d.daily_value ELSE 0 END), 0.0)
-                - COALESCE(SUM(CASE WHEN d.date >= q.date - INTERVAL 90 DAY
-                                    THEN d.daily_value ELSE 0 END), 0.0)
-                AS gov_contract_momentum
-        FROM query_pairs q
-        LEFT JOIN daily d
-            ON d.ticker = q.ticker
-            AND d.date <= q.date
-            AND d.date >= q.date - INTERVAL 90 DAY
-        GROUP BY q.ticker, q.date
-    """).pl()
-    con.close()
+        # For each query (ticker, date), sum contracts in window.
+        # Note: contracts are pre-aggregated to daily sums before the join.
+        # Phase 1 data volumes (90-day window, ~50 tickers) fit comfortably in memory.
+        # For larger scale, replace with DuckDB read_parquet() glob views.
+        result = con.execute("""
+            SELECT
+                q.ticker,
+                q.date,
+                COALESCE(SUM(CASE WHEN d.date >= q.date - INTERVAL 90 DAY
+                                  THEN d.daily_value ELSE 0 END), 0.0)
+                    AS gov_contract_value_90d,
+                COALESCE(CAST(SUM(CASE WHEN d.date >= q.date - INTERVAL 90 DAY
+                                       THEN d.daily_count ELSE 0 END) AS DOUBLE), 0.0)
+                    AS gov_contract_count_90d,
+                2.0 * COALESCE(SUM(CASE WHEN d.date >= q.date - INTERVAL 30 DAY
+                                        THEN d.daily_value ELSE 0 END), 0.0)
+                    - COALESCE(SUM(CASE WHEN d.date >= q.date - INTERVAL 90 DAY
+                                        THEN d.daily_value ELSE 0 END), 0.0)
+                    AS gov_contract_momentum
+            FROM query_pairs q
+            LEFT JOIN daily d
+                ON d.ticker = q.ticker
+                AND d.date <= q.date
+                AND d.date >= q.date - INTERVAL 90 DAY
+            GROUP BY q.ticker, q.date
+        """).pl()
     return result
 
 
@@ -215,74 +221,72 @@ def _build_market_features(
     # Build a query_dates table for cross-join computations
     query_date_df = pl.DataFrame({"date": query_dates}).unique()
 
-    con = duckdb.connect()
-    con.register("query_date_df", query_date_df.to_arrow())
+    with duckdb.connect() as con:
+        con.register("query_date_df", query_date_df.to_arrow())
 
-    # Market-wide SAM.gov 30-day rolling sum
-    ai_contracts = raw_contracts.filter(pl.col("naics_code").is_in(_AI_NAICS_CODES))
-    if not ai_contracts.is_empty():
-        market_daily = (
-            ai_contracts
-            .group_by("date")
-            .agg(pl.col("contract_value_usd").sum().alias("daily_total"))
-        )
-        con.register("market_daily", market_daily.to_arrow())
-        sam_df = con.execute("""
-            SELECT
-                q.date,
-                COALESCE(SUM(m.daily_total), 0.0) AS gov_ai_spend_30d
-            FROM query_date_df q
-            LEFT JOIN market_daily m
-                ON m.date <= q.date AND m.date >= q.date - INTERVAL 30 DAY
-            GROUP BY q.date
-        """).pl()
-    else:
-        sam_df = pl.DataFrame(schema={"date": pl.Date, "gov_ai_spend_30d": pl.Float64})
-
-    # FERC rolling window features
-    ferc_df: pl.DataFrame
-    if not raw_ferc.is_empty() and "queue_date" in raw_ferc.columns:
-        ferc_valid = raw_ferc.filter(pl.col("queue_date").is_not_null())
-        ferc_dc = ferc_valid.filter(pl.col("state").is_in(_DC_STATES))
-        if not ferc_dc.is_empty():
-            ferc_daily = (
-                ferc_dc
-                .rename({"queue_date": "date"})
+        # Market-wide SAM.gov 30-day rolling sum
+        ai_contracts = raw_contracts.filter(pl.col("naics_code").is_in(_AI_NAICS_CODES))
+        if not ai_contracts.is_empty():
+            market_daily = (
+                ai_contracts
                 .group_by("date")
-                .agg(pl.col("mw").sum().alias("daily_mw"))
+                .agg(pl.col("contract_value_usd").sum().alias("daily_total"))
             )
-            con.register("ferc_daily", ferc_daily.to_arrow())
-            ferc_raw_result = con.execute("""
+            con.register("market_daily", market_daily.to_arrow())
+            sam_df = con.execute("""
                 SELECT
                     q.date,
-                    COALESCE(SUM(CASE WHEN fd.date >= q.date - INTERVAL 30 DAY
-                                      THEN fd.daily_mw ELSE 0 END), 0.0)
-                        AS ferc_queue_mw_30d,
-                    COALESCE(SUM(fd.daily_mw), 0.0) AS _mw_365d
+                    COALESCE(SUM(m.daily_total), 0.0) AS gov_ai_spend_30d
                 FROM query_date_df q
-                LEFT JOIN ferc_daily fd
-                    ON fd.date <= q.date AND fd.date >= q.date - INTERVAL 365 DAY
+                LEFT JOIN market_daily m
+                    ON m.date <= q.date AND m.date >= q.date - INTERVAL 30 DAY
                 GROUP BY q.date
             """).pl()
-            ferc_df = ferc_raw_result.with_columns(
-                (pl.col("ferc_queue_mw_30d")
-                 / (pl.col("_mw_365d") / 12.0).clip(lower_bound=1.0))
-                .alias("ferc_grid_constraint_score")
-            ).drop("_mw_365d")
+        else:
+            sam_df = pl.DataFrame(schema={"date": pl.Date, "gov_ai_spend_30d": pl.Float64})
+
+        # FERC rolling window features
+        ferc_df: pl.DataFrame
+        if not raw_ferc.is_empty() and "queue_date" in raw_ferc.columns:
+            ferc_valid = raw_ferc.filter(pl.col("queue_date").is_not_null())
+            ferc_dc = ferc_valid.filter(pl.col("state").is_in(_DC_STATES))
+            if not ferc_dc.is_empty():
+                ferc_daily = (
+                    ferc_dc
+                    .rename({"queue_date": "date"})
+                    .group_by("date")
+                    .agg(pl.col("mw").sum().alias("daily_mw"))
+                )
+                con.register("ferc_daily", ferc_daily.to_arrow())
+                ferc_raw_result = con.execute("""
+                    SELECT
+                        q.date,
+                        COALESCE(SUM(CASE WHEN fd.date >= q.date - INTERVAL 30 DAY
+                                          THEN fd.daily_mw ELSE 0 END), 0.0)
+                            AS ferc_queue_mw_30d,
+                        COALESCE(SUM(fd.daily_mw), 0.0) AS _mw_365d
+                    FROM query_date_df q
+                    LEFT JOIN ferc_daily fd
+                        ON fd.date <= q.date AND fd.date >= q.date - INTERVAL 365 DAY
+                    GROUP BY q.date
+                """).pl()
+                ferc_df = ferc_raw_result.with_columns(
+                    (pl.col("ferc_queue_mw_30d")
+                     / (pl.col("_mw_365d") / 12.0).clip(lower_bound=1.0))
+                    .alias("ferc_grid_constraint_score")
+                ).drop("_mw_365d")
+            else:
+                ferc_df = pl.DataFrame(schema={
+                    "date": pl.Date,
+                    "ferc_queue_mw_30d": pl.Float64,
+                    "ferc_grid_constraint_score": pl.Float64,
+                })
         else:
             ferc_df = pl.DataFrame(schema={
                 "date": pl.Date,
                 "ferc_queue_mw_30d": pl.Float64,
                 "ferc_grid_constraint_score": pl.Float64,
             })
-    else:
-        ferc_df = pl.DataFrame(schema={
-            "date": pl.Date,
-            "ferc_queue_mw_30d": pl.Float64,
-            "ferc_grid_constraint_score": pl.Float64,
-        })
-
-    con.close()
 
     if sam_df.is_empty() and ferc_df.is_empty():
         return pl.DataFrame(schema=_empty_schema)
