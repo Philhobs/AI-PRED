@@ -25,6 +25,7 @@ import logging
 import os
 from pathlib import Path
 
+import pandas as pd
 import requests
 import polars as pl
 
@@ -58,7 +59,6 @@ _COLUMN_MAP: dict[str, str] = {
     "State/Province/Territory": "state",
     "Fuel": "fuel",
     "Fuel Type": "fuel",
-    "Type": "fuel",
     "Status": "status",
     "Interconnection Queue Status": "status",
     "ISO": "iso",
@@ -76,8 +76,6 @@ def _is_same_half_year(d1: datetime.date, d2: datetime.date) -> bool:
 
 def _parse_excel(content: bytes, snapshot_date: datetime.date) -> pl.DataFrame:
     """Parse LBL Excel bytes into a DC-state-filtered DataFrame."""
-    import pandas as pd
-
     try:
         raw = pd.read_excel(io.BytesIO(content), engine="openpyxl")
     except Exception as exc:
@@ -102,7 +100,8 @@ def _parse_excel(content: bytes, snapshot_date: datetime.date) -> pl.DataFrame:
             raw[col] = "" if col != "mw" else 0.0
 
     # Filter to DC power states only
-    raw = raw[raw["state"].astype(str).isin(_DC_STATES)].copy()
+    raw["state"] = raw["state"].astype(str).str.strip().str.upper()
+    raw = raw[raw["state"].isin(_DC_STATES)].copy()
     if raw.empty:
         return pl.DataFrame(schema=_FERC_SCHEMA)
 
