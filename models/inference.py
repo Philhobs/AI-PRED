@@ -56,7 +56,7 @@ def _build_feature_df(
     date_str: str,
     data_dir: Path,
 ) -> pl.DataFrame:
-    """Build the 73-feature DataFrame for all tickers on date_str."""
+    """Build the full feature DataFrame for all tickers on date_str."""
     ohlcv_dir        = data_dir / "financials" / "ohlcv"
     fundamentals_dir = data_dir / "financials" / "fundamentals"
 

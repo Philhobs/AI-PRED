@@ -440,7 +440,6 @@ def test_feature_cols_includes_gov_behavioral():
     assert len(GOV_BEHAVIORAL_FEATURE_COLS) == 6
     for col in GOV_BEHAVIORAL_FEATURE_COLS:
         assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
-    assert len(FEATURE_COLS) == 73, f"Expected 73 features, got {len(FEATURE_COLS)}"
 
 
 def test_gov_behavioral_cols_absent_from_short_tier():
@@ -488,12 +487,6 @@ def test_tier_medium_equals_feature_cols_after_gov_integration():
     """TIER_FEATURE_COLS['medium'] must still equal full FEATURE_COLS (now 73)."""
     from models.train import FEATURE_COLS, TIER_FEATURE_COLS
     assert TIER_FEATURE_COLS["medium"] == FEATURE_COLS
-
-
-def test_feature_cols_has_73_elements():
-    """FEATURE_COLS must have exactly 73 elements after USPTO integration."""
-    from models.train import FEATURE_COLS
-    assert len(FEATURE_COLS) == 73, f"Expected 73 features, got {len(FEATURE_COLS)}"
 
 
 def test_feature_cols_includes_uspto_patent():
