@@ -496,7 +496,7 @@ def test_feature_cols_includes_uspto_patent():
     assert len(USPTO_PATENT_FEATURE_COLS) == 6
     for col in USPTO_PATENT_FEATURE_COLS:
         assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
-    assert len(FEATURE_COLS) == 73
+    assert len(FEATURE_COLS) == 77
 
 
 def test_uspto_patent_cols_absent_from_short_tier():
@@ -538,3 +538,52 @@ def test_uspto_patent_col_names_correct():
         "patent_citation_count_365d",
     }
     assert set(USPTO_PATENT_FEATURE_COLS) == expected
+
+
+def test_feature_cols_includes_labor():
+    """FEATURE_COLS must contain all 4 LABOR_FEATURE_COLS and total must be 77."""
+    from models.train import FEATURE_COLS
+    from processing.labor_features import LABOR_FEATURE_COLS
+    assert len(LABOR_FEATURE_COLS) == 4
+    for col in LABOR_FEATURE_COLS:
+        assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
+    assert len(FEATURE_COLS) == 77, f"Expected 77 features, got {len(FEATURE_COLS)}"
+
+
+def test_labor_cols_absent_from_short_tier():
+    """LABOR cols must not appear in short tier — monthly data too slow for 5d/20d."""
+    from models.train import TIER_FEATURE_COLS
+    from processing.labor_features import LABOR_FEATURE_COLS
+    short = set(TIER_FEATURE_COLS["short"])
+    for col in LABOR_FEATURE_COLS:
+        assert col not in short, f"{col} must not be in short tier"
+
+
+def test_labor_cols_in_medium_tier():
+    """LABOR cols must be present in medium tier."""
+    from models.train import TIER_FEATURE_COLS
+    from processing.labor_features import LABOR_FEATURE_COLS
+    medium = TIER_FEATURE_COLS["medium"]
+    for col in LABOR_FEATURE_COLS:
+        assert col in medium, f"{col} missing from medium tier"
+
+
+def test_labor_cols_in_long_tier():
+    """LABOR cols must be present in long tier."""
+    from models.train import TIER_FEATURE_COLS
+    from processing.labor_features import LABOR_FEATURE_COLS
+    long_cols = TIER_FEATURE_COLS["long"]
+    for col in LABOR_FEATURE_COLS:
+        assert col in long_cols, f"{col} missing from long tier"
+
+
+def test_labor_col_names_correct():
+    """LABOR_FEATURE_COLS must contain exactly the 4 expected column names."""
+    from processing.labor_features import LABOR_FEATURE_COLS
+    expected = {
+        "gov_ai_hiring_30d",
+        "gov_ai_hiring_momentum",
+        "tech_job_openings_index",
+        "tech_job_openings_momentum",
+    }
+    assert set(LABOR_FEATURE_COLS) == expected

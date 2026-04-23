@@ -42,6 +42,7 @@ from processing.cyber_threat_features import CYBER_THREAT_FEATURE_COLS, join_cyb
 from processing.options_features import OPTIONS_FEATURE_COLS, join_options_features
 from processing.gov_behavioral_features import GOV_BEHAVIORAL_FEATURE_COLS, join_gov_behavioral_features
 from processing.patent_features import USPTO_PATENT_FEATURE_COLS, join_patent_features
+from processing.labor_features import LABOR_FEATURE_COLS, join_labor_features
 from ingestion.ticker_registry import LAYER_IDS, tickers_in_layer, layers as all_layers
 
 _LOG = logging.getLogger(__name__)
@@ -116,6 +117,7 @@ FEATURE_COLS = (
     + OPTIONS_FEATURE_COLS       # 55 → 61 features total
     + GOV_BEHAVIORAL_FEATURE_COLS  # 61 → 67 features total
     + USPTO_PATENT_FEATURE_COLS    # 67 → 73 features total
+    + LABOR_FEATURE_COLS           # 73 → 77 features total
 )
 
 # ── Horizon registry ──────────────────────────────────────────────────────────
@@ -143,7 +145,7 @@ TIER_FEATURE_COLS: dict[str, list[str]] = {
         + _CYBER_THREAT_SHORT_COLS   # 5 features: *_7d only
         + OPTIONS_FEATURE_COLS       # all 6 options features
     ),
-    "medium": list(FEATURE_COLS),    # all 73 features (copy to avoid shared mutable reference)
+    "medium": list(FEATURE_COLS),    # all 77 features (copy to avoid shared mutable reference)
     "long": (
         PRICE_FEATURE_COLS
         + FUND_FEATURE_COLS
@@ -155,6 +157,7 @@ TIER_FEATURE_COLS: dict[str, list[str]] = {
         + FX_FEATURE_COLS
         + GOV_BEHAVIORAL_FEATURE_COLS  # contract award cycles relevant at year+ horizons
         + USPTO_PATENT_FEATURE_COLS    # patent grant cycles relevant at year+ horizons
+        + LABOR_FEATURE_COLS           # labor market cycles relevant at year+ horizons
         # cyber threat features excluded — noise at year+ horizons
     ),
 }
@@ -343,6 +346,11 @@ def build_training_dataset(
     patents_apps_dir = fundamentals_dir.parent.parent / "patents" / "applications"
     patents_grants_dir = fundamentals_dir.parent.parent / "patents" / "grants"
     df = join_patent_features(df, patents_apps_dir, patents_grants_dir)
+
+    # Join labor market features (USAJOBS federal postings + BLS JOLTS tech openings)
+    usajobs_dir = fundamentals_dir.parent.parent / "usajobs"
+    jolts_dir = fundamentals_dir.parent.parent / "bls_jolts"
+    df = join_labor_features(df, usajobs_dir, jolts_dir)
 
     if horizon_tag is not None:
         return (

@@ -45,6 +45,7 @@ from processing.cyber_threat_features import join_cyber_threat_features
 from processing.options_features import join_options_features
 from processing.gov_behavioral_features import join_gov_behavioral_features
 from processing.patent_features import join_patent_features
+from processing.labor_features import join_labor_features
 
 
 def _load_pickle(path: Path):
@@ -133,6 +134,10 @@ def _build_feature_df(
     patents_apps_dir = data_dir / "patents" / "applications"
     patents_grants_dir = data_dir / "patents" / "grants"
     df = join_patent_features(df, patents_apps_dir, patents_grants_dir)
+
+    usajobs_dir = data_dir / "usajobs"
+    jolts_dir = data_dir / "bls_jolts"
+    df = join_labor_features(df, usajobs_dir, jolts_dir)
 
     return df
 
