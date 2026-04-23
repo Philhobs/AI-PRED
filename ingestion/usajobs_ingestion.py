@@ -60,6 +60,7 @@ def _fetch_keyword(keyword: str, run_date: datetime.date, user_agent: str) -> li
     """Fetch all USAJOBS postings for one keyword term across all pages."""
     headers = {"Host": "data.usajobs.gov", "User-Agent": user_agent}
     records: list[dict] = []
+    fetched = 0
     page = 1
 
     while page <= _MAX_PAGES:
@@ -78,6 +79,9 @@ def _fetch_keyword(keyword: str, run_date: datetime.date, user_agent: str) -> li
 
         for item in items:
             desc = item.get("MatchedObjectDescriptor", {})
+            position_id = desc.get("PositionID", "")
+            if not position_id:
+                continue
             pub_start = desc.get("PublicationStartDate", "")
             try:
                 posted = datetime.date.fromisoformat(pub_start[:10])
@@ -85,17 +89,23 @@ def _fetch_keyword(keyword: str, run_date: datetime.date, user_agent: str) -> li
                 continue
             records.append({
                 "date": run_date,
-                "posting_id": desc.get("PositionID", ""),
+                "posting_id": position_id,
                 "title": desc.get("PositionTitle", ""),
                 "posted_date": posted,
                 "keyword": keyword,
             })
 
-        total = data.get("SearchResult", {}).get("SearchResultCountAll", 0)
-        if len(records) >= total or len(items) < _RESULTS_PER_PAGE:
+        total = data.get("SearchResult", {}).get("SearchResultCountAll")
+        if total is None:
+            _LOG.warning("USAJOBS: SearchResultCountAll missing — cannot paginate, stopping after page %d", page)
+            break
+        fetched += len(items)
+        if fetched >= total or len(items) < _RESULTS_PER_PAGE:
             break
         page += 1
 
+    if page > _MAX_PAGES:
+        _LOG.warning("USAJOBS: reached _MAX_PAGES=%d limit for keyword %r — result may be truncated", _MAX_PAGES, keyword)
     return records
 
 

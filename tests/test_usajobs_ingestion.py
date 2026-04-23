@@ -104,3 +104,24 @@ def test_sleep_between_keyword_queries():
     # sleep called len(_KEYWORDS) - 1 times (between queries, not after the last)
     assert mock_sleep.call_count == len(_KEYWORDS) - 1
     mock_sleep.assert_called_with(1.0)
+
+
+def test_pagination_followed():
+    """fetch_postings requests page 2 when page 1 has fewer items than SearchResultCountAll."""
+    from ingestion.usajobs_ingestion import fetch_postings, _KEYWORDS
+
+    item1 = _make_item("DOD-001", "AI Engineer", "2024-03-10")
+    item2 = _make_item("DOD-002", "ML Scientist", "2024-03-11")
+
+    # For each of the 5 keywords: page 1 returns 1 item with total=2, page 2 returns 1 item with total=2
+    page1 = _make_response([item1], total=2)
+    page2 = _make_response([item2], total=2)
+    side_effects = [page1, page2] * len(_KEYWORDS)
+
+    with patch("ingestion.usajobs_ingestion.requests.get", side_effect=side_effects):
+        with patch("ingestion.usajobs_ingestion.time.sleep"):
+            df = fetch_postings("2024-04-01")
+
+    # 2 unique items (DOD-001 and DOD-002) after dedup across 5 keywords
+    assert len(df) == 2
+    assert set(df["posting_id"].to_list()) == {"DOD-001", "DOD-002"}
