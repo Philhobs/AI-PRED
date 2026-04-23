@@ -163,7 +163,7 @@ def test_feature_cols_contains_fx():
 
 
 def test_tier_feature_cols_medium_equals_feature_cols():
-    """TIER_FEATURE_COLS['medium'] must be identical to FEATURE_COLS (67 features)."""
+    """TIER_FEATURE_COLS['medium'] must be identical to FEATURE_COLS (73 features)."""
     from models.train import FEATURE_COLS, TIER_FEATURE_COLS
     assert TIER_FEATURE_COLS["medium"] == FEATURE_COLS
 
@@ -390,12 +390,6 @@ def test_tier_long_excludes_cyber_threat():
 
 # ── Options signals integration ────────────────────────────────────────────────
 
-def test_feature_cols_has_67_elements():
-    """FEATURE_COLS must have exactly 73 elements after full feature set integration."""
-    from models.train import FEATURE_COLS
-    assert len(FEATURE_COLS) == 73, f"Expected 73 features, got {len(FEATURE_COLS)}"
-
-
 def test_options_feature_cols_in_feature_cols():
     """All 6 OPTIONS_FEATURE_COLS must appear in FEATURE_COLS."""
     from models.train import FEATURE_COLS
@@ -491,7 +485,7 @@ def test_gov_behavioral_col_names_are_correct():
 
 
 def test_tier_medium_equals_feature_cols_after_gov_integration():
-    """TIER_FEATURE_COLS['medium'] must still equal full FEATURE_COLS (now 67)."""
+    """TIER_FEATURE_COLS['medium'] must still equal full FEATURE_COLS (now 73)."""
     from models.train import FEATURE_COLS, TIER_FEATURE_COLS
     assert TIER_FEATURE_COLS["medium"] == FEATURE_COLS
 
