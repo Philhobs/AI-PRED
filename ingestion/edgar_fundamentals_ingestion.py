@@ -406,12 +406,16 @@ def _build_balance_df(cik: str, ticker: str) -> pl.DataFrame:
 def _compute_derived(income: pl.DataFrame, balance: pl.DataFrame) -> pl.DataFrame:
     """
     Join income + balance sheet on period_end (left join — keep all income dates).
-    Compute 6 derived metrics + revenue_growth_yoy (4-quarter lag).
+    Compute 11 derived metrics: 6 ratio metrics + revenue_growth_yoy (4-quarter
+    calendar join) + 5 TTM-based metrics (net_income_margin, free_cash_flow_margin,
+    capex_growth_yoy, revenue_growth_accel, research_to_revenue).
 
-    Returns DataFrame: [period_end, revenue, net_income, shares_outstanding,
-                        revenue_growth_yoy, gross_margin, operating_margin,
-                        capex_to_revenue, debt_to_equity, current_ratio]
-    plus income/balance columns needed for valuation ratios downstream.
+    Returns DataFrame with income/balance columns plus:
+        revenue_growth_yoy, gross_margin, operating_margin,
+        capex_to_revenue, debt_to_equity, current_ratio,
+        net_income_margin, free_cash_flow_margin, capex_growth_yoy,
+        revenue_growth_accel, research_to_revenue
+    (income/balance columns retained for valuation ratio computation downstream)
     """
     if income.is_empty() or balance.is_empty():
         return pl.DataFrame()
