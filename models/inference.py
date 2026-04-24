@@ -46,6 +46,7 @@ from processing.options_features import join_options_features
 from processing.gov_behavioral_features import join_gov_behavioral_features
 from processing.patent_features import join_patent_features
 from processing.labor_features import join_labor_features
+from processing.census_trade_features import join_census_trade_features
 
 
 def _load_pickle(path: Path):
@@ -138,6 +139,9 @@ def _build_feature_df(
     usajobs_dir = data_dir / "usajobs"
     jolts_dir = data_dir / "bls_jolts"
     df = join_labor_features(df, usajobs_dir, jolts_dir)
+
+    census_trade_dir = data_dir / "census_trade"
+    df = join_census_trade_features(df, census_trade_dir)
 
     return df
 

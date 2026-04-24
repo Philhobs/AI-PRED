@@ -496,7 +496,7 @@ def test_feature_cols_includes_uspto_patent():
     assert len(USPTO_PATENT_FEATURE_COLS) == 6
     for col in USPTO_PATENT_FEATURE_COLS:
         assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
-    assert len(FEATURE_COLS) == 77
+    assert len(FEATURE_COLS) == 83
 
 
 def test_uspto_patent_cols_absent_from_short_tier():
@@ -547,7 +547,7 @@ def test_feature_cols_includes_labor():
     assert len(LABOR_FEATURE_COLS) == 4
     for col in LABOR_FEATURE_COLS:
         assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
-    assert len(FEATURE_COLS) == 77, f"Expected 77 features, got {len(FEATURE_COLS)}"
+    assert len(FEATURE_COLS) == 83, f"Expected 83 features, got {len(FEATURE_COLS)}"
 
 
 def test_labor_cols_absent_from_short_tier():
@@ -587,3 +587,54 @@ def test_labor_col_names_correct():
         "tech_job_openings_momentum",
     }
     assert set(LABOR_FEATURE_COLS) == expected
+
+
+def test_feature_cols_includes_census():
+    """FEATURE_COLS must contain all 6 CENSUS_TRADE_FEATURE_COLS and total must be 83."""
+    from models.train import FEATURE_COLS
+    from processing.census_trade_features import CENSUS_TRADE_FEATURE_COLS
+    assert len(CENSUS_TRADE_FEATURE_COLS) == 6
+    for col in CENSUS_TRADE_FEATURE_COLS:
+        assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
+    assert len(FEATURE_COLS) == 83, f"Expected 83 features, got {len(FEATURE_COLS)}"
+
+
+def test_census_cols_absent_from_short_tier():
+    """CENSUS cols must not appear in short tier — monthly data too slow for 5d/20d."""
+    from models.train import TIER_FEATURE_COLS
+    from processing.census_trade_features import CENSUS_TRADE_FEATURE_COLS
+    short = set(TIER_FEATURE_COLS["short"])
+    for col in CENSUS_TRADE_FEATURE_COLS:
+        assert col not in short, f"{col} must not be in short tier"
+
+
+def test_census_cols_in_medium_tier():
+    """CENSUS cols must be present in medium tier."""
+    from models.train import TIER_FEATURE_COLS
+    from processing.census_trade_features import CENSUS_TRADE_FEATURE_COLS
+    medium = TIER_FEATURE_COLS["medium"]
+    for col in CENSUS_TRADE_FEATURE_COLS:
+        assert col in medium, f"{col} missing from medium tier"
+
+
+def test_census_cols_in_long_tier():
+    """CENSUS cols must be present in long tier."""
+    from models.train import TIER_FEATURE_COLS
+    from processing.census_trade_features import CENSUS_TRADE_FEATURE_COLS
+    long_cols = TIER_FEATURE_COLS["long"]
+    for col in CENSUS_TRADE_FEATURE_COLS:
+        assert col in long_cols, f"{col} missing from long tier"
+
+
+def test_census_col_names_correct():
+    """CENSUS_TRADE_FEATURE_COLS must contain exactly the 6 expected column names."""
+    from processing.census_trade_features import CENSUS_TRADE_FEATURE_COLS
+    expected = {
+        "semicon_import_value",
+        "semicon_import_momentum",
+        "dc_equipment_import_value",
+        "dc_equipment_import_momentum",
+        "china_semicon_export_share",
+        "taiwan_semicon_import_share",
+    }
+    assert set(CENSUS_TRADE_FEATURE_COLS) == expected
