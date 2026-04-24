@@ -28,7 +28,7 @@ from sklearn.preprocessing import StandardScaler
 
 from processing.earnings_features import join_earnings_features
 from processing.energy_geo_features import join_energy_geo_features
-from processing.fundamental_features import join_fundamentals
+from processing.fundamental_features import join_fundamentals, FUNDAMENTAL_FEATURE_COLS as FUND_FEATURE_COLS
 from processing.fx_features import join_fx_features
 from processing.graph_features import join_graph_features
 from processing.insider_features import join_insider_features
@@ -53,14 +53,6 @@ _LOG = logging.getLogger(__name__)
 PRICE_FEATURE_COLS = [
     "return_1d", "return_5d", "return_20d",
     "sma_20_deviation", "volatility_20d", "volume_ratio",
-]
-FUND_FEATURE_COLS = [
-    "pe_ratio_trailing", "price_to_sales", "price_to_book",
-    "revenue_growth_yoy", "gross_margin", "operating_margin",
-    "capex_to_revenue", "debt_to_equity", "current_ratio",
-    # 5 new TTM-based metrics (medium + long tiers only — quarterly cadence too slow for 5d/20d)
-    "net_income_margin", "free_cash_flow_margin", "capex_growth_yoy",
-    "revenue_growth_accel", "research_to_revenue",
 ]
 INSIDER_FEATURE_COLS = [
     "insider_cluster_buy_90d",

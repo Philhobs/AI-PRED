@@ -2,7 +2,6 @@
 import datetime
 import polars as pl
 import pytest
-import pyarrow.parquet as pq
 from pathlib import Path
 
 
@@ -145,17 +144,10 @@ def test_join_fundamentals_returns_null_when_date_before_earliest_quarter(tmp_pa
 
 # ── New tests for the 5 additional columns ───────────────────────────────────
 
-def _write_fund_parquet(fund_dir: Path, ticker: str, rows: list[dict]) -> None:
-    """Helper: write quarterly.parquet for a ticker into fund_dir/<ticker>/."""
-    path = fund_dir / ticker / "quarterly.parquet"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    pl.DataFrame(rows).write_parquet(str(path))
-
-
 def test_net_income_margin_asof_picks_most_recent_past_quarter(tmp_path):
     """net_income_margin backward asof join selects the most recent quarter <= query date."""
     from processing.fundamental_features import join_fundamentals
-    _write_fund_parquet(tmp_path, "MSFT", [
+    _write_fundamentals_fixture(tmp_path, "MSFT", [
         _make_full_quarter("MSFT", datetime.date(2022, 9, 30), net_income_margin=0.30),
         _make_full_quarter("MSFT", datetime.date(2022, 12, 31), net_income_margin=0.35),
         # Future quarter — must NOT be picked for a date before 2023-03-31
@@ -172,7 +164,7 @@ def test_net_income_margin_asof_picks_most_recent_past_quarter(tmp_path):
 def test_free_cash_flow_margin_via_asof_join(tmp_path):
     """free_cash_flow_margin is correctly joined backward by date."""
     from processing.fundamental_features import join_fundamentals
-    _write_fund_parquet(tmp_path, "NVDA", [
+    _write_fundamentals_fixture(tmp_path, "NVDA", [
         _make_full_quarter("NVDA", datetime.date(2022, 12, 31), free_cash_flow_margin=0.25),
     ])
     price_df = pl.DataFrame({
@@ -186,7 +178,7 @@ def test_free_cash_flow_margin_via_asof_join(tmp_path):
 def test_capex_growth_yoy_positive_when_accelerating(tmp_path):
     """capex_growth_yoy reflects positive growth from the most recent quarter."""
     from processing.fundamental_features import join_fundamentals
-    _write_fund_parquet(tmp_path, "AMD", [
+    _write_fundamentals_fixture(tmp_path, "AMD", [
         _make_full_quarter("AMD", datetime.date(2022, 12, 31), capex_growth_yoy=0.20),
     ])
     price_df = pl.DataFrame({
@@ -200,7 +192,7 @@ def test_capex_growth_yoy_positive_when_accelerating(tmp_path):
 def test_revenue_growth_accel_second_derivative(tmp_path):
     """revenue_growth_accel = current YoY growth minus prior quarter YoY growth."""
     from processing.fundamental_features import join_fundamentals
-    _write_fund_parquet(tmp_path, "GOOGL", [
+    _write_fundamentals_fixture(tmp_path, "GOOGL", [
         _make_full_quarter("GOOGL", datetime.date(2022, 9, 30),  revenue_growth_accel=0.0),
         _make_full_quarter("GOOGL", datetime.date(2022, 12, 31), revenue_growth_accel=0.05),
     ])
