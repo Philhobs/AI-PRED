@@ -147,17 +147,23 @@ SHARES_CONCEPTS = [
 # ── PyArrow output schema (identical to fundamental_ingestion.py) ─────────────
 
 _SCHEMA = pa.schema([
-    pa.field("ticker",              pa.string()),
-    pa.field("period_end",          pa.date32()),
-    pa.field("pe_ratio_trailing",   pa.float64()),
-    pa.field("price_to_sales",      pa.float64()),
-    pa.field("price_to_book",       pa.float64()),
-    pa.field("revenue_growth_yoy",  pa.float64()),
-    pa.field("gross_margin",        pa.float64()),
-    pa.field("operating_margin",    pa.float64()),
-    pa.field("capex_to_revenue",    pa.float64()),
-    pa.field("debt_to_equity",      pa.float64()),
-    pa.field("current_ratio",       pa.float64()),
+    pa.field("ticker",                pa.string()),
+    pa.field("period_end",            pa.date32()),
+    pa.field("pe_ratio_trailing",     pa.float64()),
+    pa.field("price_to_sales",        pa.float64()),
+    pa.field("price_to_book",         pa.float64()),
+    pa.field("revenue_growth_yoy",    pa.float64()),
+    pa.field("gross_margin",          pa.float64()),
+    pa.field("operating_margin",      pa.float64()),
+    pa.field("capex_to_revenue",      pa.float64()),
+    pa.field("debt_to_equity",        pa.float64()),
+    pa.field("current_ratio",         pa.float64()),
+    # 5 new TTM-based metrics
+    pa.field("net_income_margin",     pa.float64()),
+    pa.field("free_cash_flow_margin", pa.float64()),
+    pa.field("capex_growth_yoy",      pa.float64()),
+    pa.field("revenue_growth_accel",  pa.float64()),
+    pa.field("research_to_revenue",   pa.float64()),
 ])
 
 _HEADERS = {"User-Agent": "ai-infra-predictor research@example.com"}
@@ -282,19 +288,20 @@ def _to_period_series(records: list[dict], value_col: str, annual: bool) -> pl.D
 
 def _build_income_df(cik: str, ticker: str, annual: bool) -> pl.DataFrame:
     """
-    Fetch income statement + capex from EDGAR for one ticker.
+    Fetch income statement + capex + R&D from EDGAR for one ticker.
     Returns DataFrame: [period_end, revenue, gross_profit, operating_income,
-                        net_income, capex]
-    Missing concepts produce null columns. Returns empty DataFrame if revenue
-    data is unavailable (revenue is the required anchor column).
+                        net_income, capex, rd_expense]
+    Missing concepts produce null columns (rd_expense = null when concept returns 404).
+    Returns empty DataFrame if revenue data is unavailable.
     """
     print(f"[EDGAR] {ticker}: fetching income statement...")
 
     revenue_records        = _try_concepts(cik, REVENUE_CONCEPTS)
-    gross_profit_records   = _fetch_xbrl(cik, "GrossProfit");           time.sleep(0.15)
-    op_income_records      = _fetch_xbrl(cik, "OperatingIncomeLoss");   time.sleep(0.15)
+    gross_profit_records   = _fetch_xbrl(cik, "GrossProfit");                   time.sleep(0.15)
+    op_income_records      = _fetch_xbrl(cik, "OperatingIncomeLoss");           time.sleep(0.15)
     net_income_records     = _try_concepts(cik, NET_INCOME_CONCEPTS)
     capex_records          = _try_concepts(cik, CAPEX_CONCEPTS)
+    rd_records             = _fetch_xbrl(cik, "ResearchAndDevelopmentExpense"); time.sleep(0.15)
 
     revenue = _to_period_series(revenue_records, "revenue", annual)
     if revenue.is_empty():
@@ -305,10 +312,11 @@ def _build_income_df(cik: str, ticker: str, annual: bool) -> pl.DataFrame:
     operating_income  = _to_period_series(op_income_records,     "operating_income",  annual)
     net_income        = _to_period_series(net_income_records,     "net_income",        annual)
     capex             = _to_period_series(capex_records,          "capex",             annual)
+    rd_expense        = _to_period_series(rd_records,             "rd_expense",        annual)
 
     # Outer-join all series on period_end; missing quarters become null
     df = revenue
-    for other in [gross_profit, operating_income, net_income, capex]:
+    for other in [gross_profit, operating_income, net_income, capex, rd_expense]:
         if not other.is_empty():
             df = df.join(other, on="period_end", how="left")
         else:
@@ -317,7 +325,7 @@ def _build_income_df(cik: str, ticker: str, annual: bool) -> pl.DataFrame:
                 df = df.with_columns(pl.lit(None).cast(pl.Float64).alias(col_name))
 
     # Ensure all expected columns exist
-    for col in ["gross_profit", "operating_income", "net_income", "capex"]:
+    for col in ["gross_profit", "operating_income", "net_income", "capex", "rd_expense"]:
         if col not in df.columns:
             df = df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
 
@@ -470,7 +478,75 @@ def _compute_derived(income: pl.DataFrame, balance: pl.DataFrame) -> pl.DataFram
         .alias("current_ratio"),
     ])
 
-    return df.drop("revenue_4q_prior")
+    df = df.drop("revenue_4q_prior")
+
+    # ── 5 new TTM-based metrics ───────────────────────────────────────────────
+    df = df.sort("period_end").with_columns([
+        pl.col("net_income").rolling_sum(window_size=4, min_samples=4).alias("_ttm_net_income"),
+        pl.col("operating_income").rolling_sum(window_size=4, min_samples=4).alias("_ttm_op_income"),
+        pl.col("capex").rolling_sum(window_size=4, min_samples=4).alias("_ttm_capex"),
+        pl.col("revenue").rolling_sum(window_size=4, min_samples=4).alias("_ttm_revenue"),
+        pl.col("rd_expense").fill_null(0.0).rolling_sum(window_size=4, min_samples=4).alias("_ttm_rd"),
+    ])
+
+    df = df.with_columns(
+        pl.col("_ttm_capex").shift(4).alias("_prior_ttm_capex")
+    )
+
+    df = df.with_columns([
+        # net_income_margin: 0.0 when TTM revenue unavailable
+        pl.when(
+            pl.col("_ttm_revenue").is_not_null() & (pl.col("_ttm_revenue") != 0)
+            & pl.col("_ttm_net_income").is_not_null()
+        )
+        .then(pl.col("_ttm_net_income") / pl.col("_ttm_revenue"))
+        .otherwise(0.0)
+        .alias("net_income_margin"),
+
+        # free_cash_flow_margin: 0.0 when TTM revenue unavailable
+        pl.when(
+            pl.col("_ttm_revenue").is_not_null() & (pl.col("_ttm_revenue") != 0)
+            & pl.col("_ttm_op_income").is_not_null()
+            & pl.col("_ttm_capex").is_not_null()
+        )
+        .then((pl.col("_ttm_op_income") - pl.col("_ttm_capex")) / pl.col("_ttm_revenue"))
+        .otherwise(0.0)
+        .alias("free_cash_flow_margin"),
+
+        # capex_growth_yoy: null when <8 quarters of capex history
+        pl.when(
+            pl.col("_prior_ttm_capex").is_not_null() & (pl.col("_prior_ttm_capex") > 0)
+            & pl.col("_ttm_capex").is_not_null()
+        )
+        .then((pl.col("_ttm_capex") / pl.col("_prior_ttm_capex")) - 1.0)
+        .otherwise(None)
+        .alias("capex_growth_yoy"),
+
+        # research_to_revenue: 0.0 when R&D concept unavailable (rd_expense = 0/null)
+        pl.when(pl.col("_ttm_revenue").is_not_null() & (pl.col("_ttm_revenue") != 0))
+        .then(pl.col("_ttm_rd") / pl.col("_ttm_revenue"))
+        .otherwise(0.0)
+        .alias("research_to_revenue"),
+    ])
+
+    # revenue_growth_accel: second derivative of YoY growth
+    df = df.with_columns(
+        pl.col("revenue_growth_yoy").shift(1).alias("_prior_yoy")
+    )
+    df = df.with_columns(
+        pl.when(
+            pl.col("revenue_growth_yoy").is_not_null()
+            & pl.col("_prior_yoy").is_not_null()
+        )
+        .then(pl.col("revenue_growth_yoy") - pl.col("_prior_yoy"))
+        .otherwise(0.0)
+        .alias("revenue_growth_accel")
+    )
+
+    df = df.drop(["_ttm_net_income", "_ttm_op_income", "_ttm_capex", "_ttm_revenue",
+                  "_ttm_rd", "_prior_ttm_capex", "_prior_yoy"])
+
+    return df
 
 
 def _load_ohlcv(ticker: str, ohlcv_dir: Path) -> pl.DataFrame:
@@ -601,6 +677,9 @@ def fetch_edgar_fundamentals(ticker: str, ohlcv_dir: Path) -> pl.DataFrame:
         "period_end", "pe_ratio_trailing", "price_to_sales", "price_to_book",
         "revenue_growth_yoy", "gross_margin", "operating_margin",
         "capex_to_revenue", "debt_to_equity", "current_ratio",
+        # 5 new TTM metrics
+        "net_income_margin", "free_cash_flow_margin", "capex_growth_yoy",
+        "revenue_growth_accel", "research_to_revenue",
     ]
     # Only keep columns that exist (some may be null if EDGAR had no data)
     present = [c for c in output_cols if c in df.columns]

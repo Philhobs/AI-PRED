@@ -120,6 +120,7 @@ _INCOME_FIXTURE = pl.DataFrame({
     "operating_income": [ 3_000.0,  3_150.0,  3_300.0,  3_450.0,  3_600.0],
     "net_income":       [ 2_500.0,  2_625.0,  2_750.0,  2_875.0,  3_000.0],
     "capex":            [   500.0,    525.0,    550.0,    575.0,    600.0],
+    "rd_expense":       [ 1_000.0,  1_050.0,  1_100.0,  1_150.0,  1_200.0],
 })
 
 _BALANCE_FIXTURE = pl.DataFrame({
@@ -186,6 +187,7 @@ def test_compute_derived_yoy_handles_missing_quarter():
         "operating_income": [ 3_000.0,  3_150.0,  3_450.0,  3_600.0],
         "net_income":       [ 2_500.0,  2_625.0,  2_875.0,  3_000.0],
         "capex":            [   500.0,    525.0,    575.0,    600.0],
+        "rd_expense":       [ 1_000.0,  1_050.0,  1_150.0,  1_200.0],
     })
     balance_with_gap = pl.DataFrame({
         "period_end": pl.Series([
