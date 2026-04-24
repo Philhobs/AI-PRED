@@ -541,7 +541,7 @@ def test_uspto_patent_col_names_correct():
 
 
 def test_feature_cols_includes_labor():
-    """FEATURE_COLS must contain all 4 LABOR_FEATURE_COLS and total must be 77."""
+    """FEATURE_COLS must contain all 4 LABOR_FEATURE_COLS and total must be 83."""
     from models.train import FEATURE_COLS
     from processing.labor_features import LABOR_FEATURE_COLS
     assert len(LABOR_FEATURE_COLS) == 4
