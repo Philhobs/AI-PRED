@@ -89,3 +89,24 @@ def test_research_to_revenue_zero_when_no_rd():
     q = df.filter(pl.col("period_end") == datetime.date(2022, 12, 31))
     row = q.row(0, named=True)
     assert row["research_to_revenue"] == pytest.approx(0.0)
+
+
+def test_revenue_growth_accel():
+    """revenue_growth_accel = current YoY growth minus prior quarter YoY growth."""
+    # _INCOME_8Q has flat revenue (10000 all quarters), so yoy=0 → accel=0
+    df = _compute_derived(_INCOME_8Q, _BALANCE_8Q)
+    q = df.filter(pl.col("period_end") == datetime.date(2022, 12, 31))
+    assert q.row(0, named=True)["revenue_growth_accel"] == pytest.approx(0.0)
+
+    # Varying revenue: accelerating growth in 2022
+    income_varying = _INCOME_8Q.with_columns(
+        pl.Series("revenue", [
+            10_000.0, 10_000.0, 10_000.0, 10_000.0,   # 2021: flat prior year
+            11_000.0, 12_000.0, 13_000.0, 15_000.0,   # 2022: Q1→Q4 accelerating
+        ])
+    )
+    df2 = _compute_derived(income_varying, _BALANCE_8Q)
+    # Q4 2022 yoy = (15000-10000)/10000 = 0.50; Q3 2022 yoy = (13000-10000)/10000 = 0.30
+    # accel = 0.50 - 0.30 = 0.20
+    q2 = df2.filter(pl.col("period_end") == datetime.date(2022, 12, 31))
+    assert abs(q2.row(0, named=True)["revenue_growth_accel"] - 0.20) < 1e-6
