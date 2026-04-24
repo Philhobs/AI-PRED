@@ -93,7 +93,7 @@ def test_empty_response_no_file_written(tmp_path):
 
 
 def test_sleep_between_queries():
-    """time.sleep(0.5) is called between queries — not after the last one."""
+    """time.sleep(1.0) is called between queries — not after the last one."""
     from ingestion.census_trade_ingestion import fetch_trade, _QUERIES
 
     import_resp = _make_census_response([_IMPORT_ROW], "GEN_VAL_MO")
