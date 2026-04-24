@@ -56,6 +56,12 @@ def _write_fundamentals_fixture(fund_dir: Path, tickers: list[str]) -> None:
             "capex_to_revenue": 0.08,
             "debt_to_equity": 0.5,
             "current_ratio": 1.8,
+            # 5 new columns
+            "net_income_margin": 0.20,
+            "free_cash_flow_margin": 0.15,
+            "capex_growth_yoy": 0.10,
+            "revenue_growth_accel": 0.02,
+            "research_to_revenue": 0.12,
         }]).write_parquet(str(path))
 
 
@@ -163,7 +169,7 @@ def test_feature_cols_contains_fx():
 
 
 def test_tier_feature_cols_medium_equals_feature_cols():
-    """TIER_FEATURE_COLS['medium'] must be identical to FEATURE_COLS (83 features)."""
+    """TIER_FEATURE_COLS['medium'] must be identical to FEATURE_COLS (88 features)."""
     from models.train import FEATURE_COLS, TIER_FEATURE_COLS
     assert TIER_FEATURE_COLS["medium"] == FEATURE_COLS
 
@@ -484,7 +490,7 @@ def test_gov_behavioral_col_names_are_correct():
 
 
 def test_tier_medium_equals_feature_cols_after_gov_integration():
-    """TIER_FEATURE_COLS['medium'] must still equal full FEATURE_COLS (now 83)."""
+    """TIER_FEATURE_COLS['medium'] must still equal full FEATURE_COLS (now 88)."""
     from models.train import FEATURE_COLS, TIER_FEATURE_COLS
     assert TIER_FEATURE_COLS["medium"] == FEATURE_COLS
 
@@ -496,7 +502,7 @@ def test_feature_cols_includes_uspto_patent():
     assert len(USPTO_PATENT_FEATURE_COLS) == 6
     for col in USPTO_PATENT_FEATURE_COLS:
         assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
-    assert len(FEATURE_COLS) == 83
+    assert len(FEATURE_COLS) == 88
 
 
 def test_uspto_patent_cols_absent_from_short_tier():
@@ -541,13 +547,13 @@ def test_uspto_patent_col_names_correct():
 
 
 def test_feature_cols_includes_labor():
-    """FEATURE_COLS must contain all 4 LABOR_FEATURE_COLS and total must be 83."""
+    """FEATURE_COLS must contain all 4 LABOR_FEATURE_COLS and total must be 88."""
     from models.train import FEATURE_COLS
     from processing.labor_features import LABOR_FEATURE_COLS
     assert len(LABOR_FEATURE_COLS) == 4
     for col in LABOR_FEATURE_COLS:
         assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
-    assert len(FEATURE_COLS) == 83, f"Expected 83 features, got {len(FEATURE_COLS)}"
+    assert len(FEATURE_COLS) == 88, f"Expected 88 features, got {len(FEATURE_COLS)}"
 
 
 def test_labor_cols_absent_from_short_tier():
@@ -590,13 +596,13 @@ def test_labor_col_names_correct():
 
 
 def test_feature_cols_includes_census():
-    """FEATURE_COLS must contain all 6 CENSUS_TRADE_FEATURE_COLS and total must be 83."""
+    """FEATURE_COLS must contain all 6 CENSUS_TRADE_FEATURE_COLS and total must be 88."""
     from models.train import FEATURE_COLS
     from processing.census_trade_features import CENSUS_TRADE_FEATURE_COLS
     assert len(CENSUS_TRADE_FEATURE_COLS) == 6
     for col in CENSUS_TRADE_FEATURE_COLS:
         assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
-    assert len(FEATURE_COLS) == 83, f"Expected 83 features, got {len(FEATURE_COLS)}"
+    assert len(FEATURE_COLS) == 88, f"Expected 88 features, got {len(FEATURE_COLS)}"
 
 
 def test_census_cols_absent_from_short_tier():
@@ -638,3 +644,64 @@ def test_census_col_names_correct():
         "taiwan_semicon_import_share",
     }
     assert set(CENSUS_TRADE_FEATURE_COLS) == expected
+
+
+# ── EDGAR expanded fundamentals (Task 2: 9→14 columns) ───────────────────────
+
+def test_feature_cols_includes_edgar_expanded():
+    """FEATURE_COLS must contain all 14 FUNDAMENTAL_FEATURE_COLS and total must be 88."""
+    from models.train import FEATURE_COLS
+    from processing.fundamental_features import FUNDAMENTAL_FEATURE_COLS
+    assert len(FUNDAMENTAL_FEATURE_COLS) == 14
+    for col in FUNDAMENTAL_FEATURE_COLS:
+        assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
+    assert len(FEATURE_COLS) == 88, f"Expected 88 features, got {len(FEATURE_COLS)}"
+
+
+def test_edgar_expanded_cols_absent_from_short_tier():
+    """New fundamental cols must not appear in short tier — quarterly cadence too slow."""
+    from models.train import TIER_FEATURE_COLS
+    new_cols = {
+        "net_income_margin", "free_cash_flow_margin", "capex_growth_yoy",
+        "revenue_growth_accel", "research_to_revenue",
+    }
+    short = set(TIER_FEATURE_COLS["short"])
+    for col in new_cols:
+        assert col not in short, f"{col} must not be in short tier"
+
+
+def test_edgar_expanded_cols_in_medium_tier():
+    """New fundamental cols must be present in medium tier."""
+    from models.train import TIER_FEATURE_COLS
+    new_cols = [
+        "net_income_margin", "free_cash_flow_margin", "capex_growth_yoy",
+        "revenue_growth_accel", "research_to_revenue",
+    ]
+    medium = TIER_FEATURE_COLS["medium"]
+    for col in new_cols:
+        assert col in medium, f"{col} missing from medium tier"
+
+
+def test_edgar_expanded_cols_in_long_tier():
+    """New fundamental cols must be present in long tier."""
+    from models.train import TIER_FEATURE_COLS
+    new_cols = [
+        "net_income_margin", "free_cash_flow_margin", "capex_growth_yoy",
+        "revenue_growth_accel", "research_to_revenue",
+    ]
+    long_cols = TIER_FEATURE_COLS["long"]
+    for col in new_cols:
+        assert col in long_cols, f"{col} missing from long tier"
+
+
+def test_edgar_expanded_col_names_correct():
+    """FUNDAMENTAL_FEATURE_COLS must contain exactly the 14 expected column names."""
+    from processing.fundamental_features import FUNDAMENTAL_FEATURE_COLS
+    expected = {
+        "pe_ratio_trailing", "price_to_sales", "price_to_book",
+        "revenue_growth_yoy", "gross_margin", "operating_margin",
+        "capex_to_revenue", "debt_to_equity", "current_ratio",
+        "net_income_margin", "free_cash_flow_margin", "capex_growth_yoy",
+        "revenue_growth_accel", "research_to_revenue",
+    }
+    assert set(FUNDAMENTAL_FEATURE_COLS) == expected

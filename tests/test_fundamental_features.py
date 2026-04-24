@@ -1,6 +1,7 @@
+"""Tests for fundamental_features.py — covers both the original 9 and 5 new columns."""
 import datetime
-import pytest
 import polars as pl
+import pytest
 import pyarrow.parquet as pq
 from pathlib import Path
 
@@ -12,6 +13,24 @@ def _write_fundamentals_fixture(fund_dir: Path, ticker: str, quarters: list[dict
     pl.DataFrame(quarters).write_parquet(str(path))
 
 
+def _make_full_quarter(ticker: str, period_end: datetime.date, **overrides) -> dict:
+    """Return a dict with all 14 fundamental columns (+ ticker + period_end)."""
+    base = {
+        "ticker": ticker,
+        "period_end": period_end,
+        "pe_ratio_trailing": 25.0, "price_to_sales": 8.0, "price_to_book": 3.0,
+        "revenue_growth_yoy": 0.15, "gross_margin": 0.60, "operating_margin": 0.25,
+        "capex_to_revenue": 0.08, "debt_to_equity": 0.5, "current_ratio": 1.8,
+        "net_income_margin": 0.20, "free_cash_flow_margin": 0.15,
+        "capex_growth_yoy": 0.10, "revenue_growth_accel": 0.02,
+        "research_to_revenue": 0.12,
+    }
+    base.update(overrides)
+    return base
+
+
+# ── Original tests (updated to use FUNDAMENTAL_FEATURE_COLS) ─────────────────
+
 def test_join_fundamentals_picks_most_recent_quarter_before_date(tmp_path):
     """join_fundamentals selects period_end <= date (backward asof join)."""
     price_df = pl.DataFrame({
@@ -21,14 +40,14 @@ def test_join_fundamentals_picks_most_recent_quarter_before_date(tmp_path):
     })
 
     quarters = [
-        {"ticker": "NVDA", "period_end": datetime.date(2024, 3, 31),
-         "pe_ratio_trailing": 30.0, "price_to_sales": 10.0, "price_to_book": 5.0,
-         "revenue_growth_yoy": 0.2, "gross_margin": 0.70, "operating_margin": 0.45,
-         "capex_to_revenue": 0.10, "debt_to_equity": 0.30, "current_ratio": 2.0},
-        {"ticker": "NVDA", "period_end": datetime.date(2024, 6, 30),
-         "pe_ratio_trailing": 35.0, "price_to_sales": 12.0, "price_to_book": 6.0,
-         "revenue_growth_yoy": 0.3, "gross_margin": 0.72, "operating_margin": 0.50,
-         "capex_to_revenue": 0.12, "debt_to_equity": 0.25, "current_ratio": 2.1},
+        _make_full_quarter("NVDA", datetime.date(2024, 3, 31),
+                           pe_ratio_trailing=30.0, price_to_sales=10.0, price_to_book=5.0,
+                           revenue_growth_yoy=0.2, gross_margin=0.70, operating_margin=0.45,
+                           capex_to_revenue=0.10, debt_to_equity=0.30, current_ratio=2.0),
+        _make_full_quarter("NVDA", datetime.date(2024, 6, 30),
+                           pe_ratio_trailing=35.0, price_to_sales=12.0, price_to_book=6.0,
+                           revenue_growth_yoy=0.3, gross_margin=0.72, operating_margin=0.50,
+                           capex_to_revenue=0.12, debt_to_equity=0.25, current_ratio=2.1),
     ]
     _write_fundamentals_fixture(tmp_path, "NVDA", quarters)
 
@@ -45,9 +64,9 @@ def test_join_fundamentals_picks_most_recent_quarter_before_date(tmp_path):
     assert row_aug["pe_ratio_trailing"][0] == pytest.approx(35.0)
     assert row_aug["gross_margin"][0] == pytest.approx(0.72)
 
-    # Output columns must be exactly: price columns + 9 fundamental columns (no period_end leak)
-    from processing.fundamental_features import _FUND_COLS
-    expected_cols = {"ticker", "date", "close_price"} | set(_FUND_COLS)
+    # Output columns must be exactly: price columns + 14 fundamental columns (no period_end leak)
+    from processing.fundamental_features import FUNDAMENTAL_FEATURE_COLS
+    expected_cols = {"ticker", "date", "close_price"} | set(FUNDAMENTAL_FEATURE_COLS)
     assert set(result.columns) == expected_cols
 
 
@@ -78,10 +97,10 @@ def test_join_fundamentals_preserves_all_price_rows(tmp_path):
     })
 
     quarters_nvda = [
-        {"ticker": "NVDA", "period_end": datetime.date(2023, 12, 31),
-         "pe_ratio_trailing": None, "price_to_sales": None, "price_to_book": None,
-         "revenue_growth_yoy": 0.1, "gross_margin": 0.65, "operating_margin": 0.4,
-         "capex_to_revenue": 0.08, "debt_to_equity": 0.4, "current_ratio": 1.8},
+        _make_full_quarter("NVDA", datetime.date(2023, 12, 31),
+                           pe_ratio_trailing=None, price_to_sales=None, price_to_book=None,
+                           revenue_growth_yoy=0.1, gross_margin=0.65, operating_margin=0.4,
+                           capex_to_revenue=0.08, debt_to_equity=0.4, current_ratio=1.8),
     ]
     _write_fundamentals_fixture(tmp_path, "NVDA", quarters_nvda)
     # No fundamentals for AMZN → AMZN rows get all-null fundamental cols
@@ -110,10 +129,10 @@ def test_join_fundamentals_returns_null_when_date_before_earliest_quarter(tmp_pa
     })
 
     quarters = [
-        {"ticker": "NVDA", "period_end": datetime.date(2024, 3, 31),
-         "pe_ratio_trailing": 30.0, "price_to_sales": 10.0, "price_to_book": 5.0,
-         "revenue_growth_yoy": 0.2, "gross_margin": 0.70, "operating_margin": 0.45,
-         "capex_to_revenue": 0.10, "debt_to_equity": 0.30, "current_ratio": 2.0},
+        _make_full_quarter("NVDA", datetime.date(2024, 3, 31),
+                           pe_ratio_trailing=30.0, price_to_sales=10.0, price_to_book=5.0,
+                           revenue_growth_yoy=0.2, gross_margin=0.70, operating_margin=0.45,
+                           capex_to_revenue=0.10, debt_to_equity=0.30, current_ratio=2.0),
     ]
     _write_fundamentals_fixture(tmp_path, "NVDA", quarters)
 
@@ -122,3 +141,86 @@ def test_join_fundamentals_returns_null_when_date_before_earliest_quarter(tmp_pa
 
     assert len(result) == 1
     assert result["gross_margin"][0] is None  # no quarter available before 2023-12-31
+
+
+# ── New tests for the 5 additional columns ───────────────────────────────────
+
+def _write_fund_parquet(fund_dir: Path, ticker: str, rows: list[dict]) -> None:
+    """Helper: write quarterly.parquet for a ticker into fund_dir/<ticker>/."""
+    path = fund_dir / ticker / "quarterly.parquet"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pl.DataFrame(rows).write_parquet(str(path))
+
+
+def test_net_income_margin_asof_picks_most_recent_past_quarter(tmp_path):
+    """net_income_margin backward asof join selects the most recent quarter <= query date."""
+    from processing.fundamental_features import join_fundamentals
+    _write_fund_parquet(tmp_path, "MSFT", [
+        _make_full_quarter("MSFT", datetime.date(2022, 9, 30), net_income_margin=0.30),
+        _make_full_quarter("MSFT", datetime.date(2022, 12, 31), net_income_margin=0.35),
+        # Future quarter — must NOT be picked for a date before 2023-03-31
+        _make_full_quarter("MSFT", datetime.date(2023, 3, 31), net_income_margin=0.40),
+    ])
+    price_df = pl.DataFrame({
+        "ticker": ["MSFT"],
+        "date": pl.Series([datetime.date(2023, 1, 15)], dtype=pl.Date),
+    })
+    result = join_fundamentals(price_df, tmp_path)
+    assert result["net_income_margin"][0] == pytest.approx(0.35)
+
+
+def test_free_cash_flow_margin_via_asof_join(tmp_path):
+    """free_cash_flow_margin is correctly joined backward by date."""
+    from processing.fundamental_features import join_fundamentals
+    _write_fund_parquet(tmp_path, "NVDA", [
+        _make_full_quarter("NVDA", datetime.date(2022, 12, 31), free_cash_flow_margin=0.25),
+    ])
+    price_df = pl.DataFrame({
+        "ticker": ["NVDA"],
+        "date": pl.Series([datetime.date(2023, 2, 1)], dtype=pl.Date),
+    })
+    result = join_fundamentals(price_df, tmp_path)
+    assert result["free_cash_flow_margin"][0] == pytest.approx(0.25)
+
+
+def test_capex_growth_yoy_positive_when_accelerating(tmp_path):
+    """capex_growth_yoy reflects positive growth from the most recent quarter."""
+    from processing.fundamental_features import join_fundamentals
+    _write_fund_parquet(tmp_path, "AMD", [
+        _make_full_quarter("AMD", datetime.date(2022, 12, 31), capex_growth_yoy=0.20),
+    ])
+    price_df = pl.DataFrame({
+        "ticker": ["AMD"],
+        "date": pl.Series([datetime.date(2023, 3, 1)], dtype=pl.Date),
+    })
+    result = join_fundamentals(price_df, tmp_path)
+    assert result["capex_growth_yoy"][0] == pytest.approx(0.20)
+
+
+def test_revenue_growth_accel_second_derivative(tmp_path):
+    """revenue_growth_accel = current YoY growth minus prior quarter YoY growth."""
+    from processing.fundamental_features import join_fundamentals
+    _write_fund_parquet(tmp_path, "GOOGL", [
+        _make_full_quarter("GOOGL", datetime.date(2022, 9, 30),  revenue_growth_accel=0.0),
+        _make_full_quarter("GOOGL", datetime.date(2022, 12, 31), revenue_growth_accel=0.05),
+    ])
+    price_df = pl.DataFrame({
+        "ticker": ["GOOGL"],
+        "date": pl.Series([datetime.date(2023, 1, 20)], dtype=pl.Date),
+    })
+    result = join_fundamentals(price_df, tmp_path)
+    assert result["revenue_growth_accel"][0] == pytest.approx(0.05)
+
+
+def test_missing_fundamentals_dir_all_14_cols_present(tmp_path):
+    """When fundamentals directory is missing, all 14 columns are present in output."""
+    from processing.fundamental_features import join_fundamentals, FUNDAMENTAL_FEATURE_COLS
+    price_df = pl.DataFrame({
+        "ticker": ["MSFT"],
+        "date": pl.Series([datetime.date(2023, 1, 1)], dtype=pl.Date),
+    })
+    result = join_fundamentals(price_df, tmp_path / "nonexistent")
+    assert len(FUNDAMENTAL_FEATURE_COLS) == 14
+    for col in FUNDAMENTAL_FEATURE_COLS:
+        assert col in result.columns, f"{col} missing from result"
+    assert len(result) == 1

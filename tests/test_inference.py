@@ -55,6 +55,12 @@ def _write_fundamentals_fixture(fund_dir: Path, tickers: list[str]) -> None:
             "capex_to_revenue": 0.08,
             "debt_to_equity": 0.5,
             "current_ratio": 1.8,
+            # 5 new columns
+            "net_income_margin": 0.20,
+            "free_cash_flow_margin": 0.15,
+            "capex_growth_yoy": 0.10,
+            "revenue_growth_accel": 0.02,
+            "research_to_revenue": 0.12,
         }]).write_parquet(str(path))
 
 

@@ -58,6 +58,9 @@ FUND_FEATURE_COLS = [
     "pe_ratio_trailing", "price_to_sales", "price_to_book",
     "revenue_growth_yoy", "gross_margin", "operating_margin",
     "capex_to_revenue", "debt_to_equity", "current_ratio",
+    # 5 new TTM-based metrics (medium + long tiers only — quarterly cadence too slow for 5d/20d)
+    "net_income_margin", "free_cash_flow_margin", "capex_growth_yoy",
+    "revenue_growth_accel", "research_to_revenue",
 ]
 INSIDER_FEATURE_COLS = [
     "insider_cluster_buy_90d",
@@ -114,12 +117,12 @@ FEATURE_COLS = (
     + EARNINGS_FEATURE_COLS + GRAPH_FEATURE_COLS
     + OWNERSHIP_FEATURE_COLS + ENERGY_FEATURE_COLS
     + SUPPLY_CHAIN_FEATURE_COLS + FX_FEATURE_COLS
-    + CYBER_THREAT_FEATURE_COLS  # 48 → 55 features total
-    + OPTIONS_FEATURE_COLS       # 55 → 61 features total
-    + GOV_BEHAVIORAL_FEATURE_COLS  # 61 → 67 features total
-    + USPTO_PATENT_FEATURE_COLS    # 67 → 73 features total
-    + LABOR_FEATURE_COLS           # 73 → 77 features total
-    + CENSUS_TRADE_FEATURE_COLS    # 77 → 83 features total
+    + CYBER_THREAT_FEATURE_COLS  # 53 → 60 features total
+    + OPTIONS_FEATURE_COLS       # 60 → 66 features total
+    + GOV_BEHAVIORAL_FEATURE_COLS  # 66 → 72 features total
+    + USPTO_PATENT_FEATURE_COLS    # 72 → 78 features total
+    + LABOR_FEATURE_COLS           # 78 → 82 features total
+    + CENSUS_TRADE_FEATURE_COLS    # 82 → 88 features total
 )
 
 # ── Horizon registry ──────────────────────────────────────────────────────────
@@ -147,7 +150,7 @@ TIER_FEATURE_COLS: dict[str, list[str]] = {
         + _CYBER_THREAT_SHORT_COLS   # 5 features: *_7d only
         + OPTIONS_FEATURE_COLS       # all 6 options features
     ),
-    "medium": list(FEATURE_COLS),    # all 83 features (copy to avoid shared mutable reference)
+    "medium": list(FEATURE_COLS),    # all 88 features (copy to avoid shared mutable reference)
     "long": (
         PRICE_FEATURE_COLS
         + FUND_FEATURE_COLS

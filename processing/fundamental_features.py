@@ -2,7 +2,8 @@ from pathlib import Path
 
 import polars as pl
 
-_FUND_COLS = [
+FUNDAMENTAL_FEATURE_COLS: list[str] = [
+    # Existing 9
     "pe_ratio_trailing",
     "price_to_sales",
     "price_to_book",
@@ -12,6 +13,12 @@ _FUND_COLS = [
     "capex_to_revenue",
     "debt_to_equity",
     "current_ratio",
+    # 5 new TTM-based metrics
+    "net_income_margin",
+    "free_cash_flow_margin",
+    "capex_growth_yoy",
+    "revenue_growth_accel",
+    "research_to_revenue",
 ]
 
 _FUND_SCHEMA = {
@@ -26,6 +33,11 @@ _FUND_SCHEMA = {
     "capex_to_revenue": pl.Float64,
     "debt_to_equity": pl.Float64,
     "current_ratio": pl.Float64,
+    "net_income_margin": pl.Float64,
+    "free_cash_flow_margin": pl.Float64,
+    "capex_growth_yoy": pl.Float64,
+    "revenue_growth_accel": pl.Float64,
+    "research_to_revenue": pl.Float64,
 }
 
 
@@ -49,9 +61,9 @@ def join_fundamentals(
         fundamentals_dir: Root directory containing <TICKER>/quarterly.parquet files.
 
     Returns:
-        price_df with 9 additional fundamental columns appended.
+        price_df with 14 additional fundamental columns appended.
     """
-    null_fund_cols = [pl.lit(None).cast(pl.Float64).alias(c) for c in _FUND_COLS]
+    null_fund_cols = [pl.lit(None).cast(pl.Float64).alias(c) for c in FUNDAMENTAL_FEATURE_COLS]
 
     glob = str(fundamentals_dir / "*" / "quarterly.parquet")
 
@@ -75,7 +87,7 @@ def join_fundamentals(
     )
 
     joined = price_sorted.join_asof(
-        fund_df.select(["ticker", "period_end"] + _FUND_COLS),
+        fund_df.select(["ticker", "period_end"] + FUNDAMENTAL_FEATURE_COLS),
         left_on="date",
         right_on="period_end",
         by="ticker",
