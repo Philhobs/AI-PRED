@@ -75,11 +75,17 @@ def test_empty_response_no_file_written(tmp_path):
     """When API returns no data rows, no parquet file is written."""
     from ingestion.census_trade_ingestion import ingest_census_trade
 
-    empty_resp = MagicMock()
-    empty_resp.raise_for_status.return_value = None
-    empty_resp.json.return_value = [["GEN_VAL_MO", "E_COMMODITY", "time"]]  # header only
+    import_empty = MagicMock()
+    import_empty.raise_for_status.return_value = None
+    import_empty.json.return_value = [["GEN_VAL_MO", "E_COMMODITY", "time"]]  # header only
 
-    with patch("ingestion.census_trade_ingestion.requests.get", return_value=empty_resp):
+    export_empty = MagicMock()
+    export_empty.raise_for_status.return_value = None
+    export_empty.json.return_value = [["ALL_VAL_MO", "E_COMMODITY", "time"]]  # header only
+
+    responses = [import_empty] * 6 + [export_empty] * 4
+
+    with patch("ingestion.census_trade_ingestion.requests.get", side_effect=responses):
         with patch("ingestion.census_trade_ingestion.time.sleep"):
             ingest_census_trade("2024-04-01", tmp_path)
 
@@ -99,4 +105,4 @@ def test_sleep_between_queries():
             fetch_trade("2024-04-01")
 
     assert mock_sleep.call_count == len(_QUERIES) - 1
-    mock_sleep.assert_called_with(0.5)
+    mock_sleep.assert_called_with(1.0)

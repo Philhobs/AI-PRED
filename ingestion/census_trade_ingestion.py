@@ -39,7 +39,7 @@ _SCHEMA = {
     "value_usd": pl.Float64,
 }
 
-_SLEEP_BETWEEN_QUERIES = 0.5
+_SLEEP_BETWEEN_QUERIES = 1.0
 
 # (direction, hs_code, partner_code) — "ALL" means omit CTY_CODE parameter
 _QUERIES: list[tuple[str, str, str]] = [
@@ -84,18 +84,19 @@ def _fetch_query(
     from_str = f"{run_date.year - 1}-{run_date.month:02d}"
     to_str = f"{run_date.year}-{run_date.month:02d}"
 
-    params: dict = {
-        "get": f"{value_field},E_COMMODITY",
-        "COMM_LVL": "HS4",
-        "E_COMMODITY": hs_code,
-        "time": f"from+{from_str}+to+{to_str}",
-    }
+    # Build query string manually — requests would percent-encode '+' in the time parameter
+    query = (
+        f"get={value_field},E_COMMODITY"
+        f"&COMM_LVL=HS4"
+        f"&E_COMMODITY={hs_code}"
+        f"&time=from+{from_str}+to+{to_str}"
+    )
     if partner_code != "ALL":
-        params["CTY_CODE"] = partner_code
+        query += f"&CTY_CODE={partner_code}"
     if api_key:
-        params["key"] = api_key
+        query += f"&key={api_key}"
 
-    resp = requests.get(url, params=params, timeout=30)
+    resp = requests.get(f"{url}?{query}", timeout=30)
     resp.raise_for_status()
     data = resp.json()
 
