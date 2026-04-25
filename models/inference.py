@@ -47,6 +47,7 @@ from processing.gov_behavioral_features import join_gov_behavioral_features
 from processing.patent_features import join_patent_features
 from processing.labor_features import join_labor_features
 from processing.census_trade_features import join_census_trade_features
+from processing.physical_ai_features import join_physical_ai_features
 
 
 def _load_pickle(path: Path):
@@ -142,6 +143,14 @@ def _build_feature_df(
 
     census_trade_dir = data_dir / "census_trade"
     df = join_census_trade_features(df, census_trade_dir)
+
+    # Join physical-AI features (FRED macro + BLS JOLTS NAICS 333 + USPTO physical-AI patents)
+    df = join_physical_ai_features(
+        df,
+        fred_dir=data_dir / "robotics_signals",
+        jolts_dir=jolts_dir,
+        patents_dir=data_dir / "uspto" / "physical_ai",
+    )
 
     return df
 

@@ -44,6 +44,7 @@ from processing.gov_behavioral_features import GOV_BEHAVIORAL_FEATURE_COLS, join
 from processing.patent_features import USPTO_PATENT_FEATURE_COLS, join_patent_features
 from processing.labor_features import LABOR_FEATURE_COLS, join_labor_features
 from processing.census_trade_features import CENSUS_TRADE_FEATURE_COLS, join_census_trade_features
+from processing.physical_ai_features import PHYSICAL_AI_FEATURE_COLS, join_physical_ai_features
 from ingestion.ticker_registry import LAYER_IDS, tickers_in_layer, layers as all_layers
 
 _LOG = logging.getLogger(__name__)
@@ -115,6 +116,7 @@ FEATURE_COLS = (
     + USPTO_PATENT_FEATURE_COLS    # 72 → 78 features total
     + LABOR_FEATURE_COLS           # 78 → 82 features total
     + CENSUS_TRADE_FEATURE_COLS    # 82 → 88 features total
+    + PHYSICAL_AI_FEATURE_COLS     # 88 → 109 features total
 )
 
 # ── Horizon registry ──────────────────────────────────────────────────────────
@@ -142,7 +144,7 @@ TIER_FEATURE_COLS: dict[str, list[str]] = {
         + _CYBER_THREAT_SHORT_COLS   # 5 features: *_7d only
         + OPTIONS_FEATURE_COLS       # all 6 options features
     ),
-    "medium": list(FEATURE_COLS),    # all 88 features (copy to avoid shared mutable reference)
+    "medium": list(FEATURE_COLS),    # all 109 features (copy to avoid shared mutable reference)
     "long": (
         PRICE_FEATURE_COLS
         + FUND_FEATURE_COLS
@@ -156,6 +158,7 @@ TIER_FEATURE_COLS: dict[str, list[str]] = {
         + USPTO_PATENT_FEATURE_COLS    # patent grant cycles relevant at year+ horizons
         + LABOR_FEATURE_COLS           # labor market cycles relevant at year+ horizons
         + CENSUS_TRADE_FEATURE_COLS    # semiconductor trade cycles relevant at year+ horizons
+        + PHYSICAL_AI_FEATURE_COLS    # physical-AI macro/patent cycles relevant at year+ horizons
         # cyber threat features excluded — noise at year+ horizons
     ),
 }
@@ -353,6 +356,14 @@ def build_training_dataset(
     # Join Census trade features (semiconductor + DC equipment import/export)
     census_trade_dir = fundamentals_dir.parent.parent / "census_trade"
     df = join_census_trade_features(df, census_trade_dir)
+
+    # Join physical-AI features (FRED macro + BLS JOLTS NAICS 333 + USPTO physical-AI patents)
+    df = join_physical_ai_features(
+        df,
+        fred_dir=fundamentals_dir.parent.parent / "robotics_signals",
+        jolts_dir=jolts_dir,
+        patents_dir=fundamentals_dir.parent.parent / "uspto" / "physical_ai",
+    )
 
     if horizon_tag is not None:
         return (

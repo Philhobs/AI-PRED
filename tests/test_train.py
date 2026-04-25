@@ -169,7 +169,7 @@ def test_feature_cols_contains_fx():
 
 
 def test_tier_feature_cols_medium_equals_feature_cols():
-    """TIER_FEATURE_COLS['medium'] must be identical to FEATURE_COLS (88 features)."""
+    """TIER_FEATURE_COLS['medium'] must be identical to FEATURE_COLS (109 features)."""
     from models.train import FEATURE_COLS, TIER_FEATURE_COLS
     assert TIER_FEATURE_COLS["medium"] == FEATURE_COLS
 
@@ -490,7 +490,7 @@ def test_gov_behavioral_col_names_are_correct():
 
 
 def test_tier_medium_equals_feature_cols_after_gov_integration():
-    """TIER_FEATURE_COLS['medium'] must still equal full FEATURE_COLS (now 88)."""
+    """TIER_FEATURE_COLS['medium'] must still equal full FEATURE_COLS (now 109)."""
     from models.train import FEATURE_COLS, TIER_FEATURE_COLS
     assert TIER_FEATURE_COLS["medium"] == FEATURE_COLS
 
@@ -502,7 +502,7 @@ def test_feature_cols_includes_uspto_patent():
     assert len(USPTO_PATENT_FEATURE_COLS) == 6
     for col in USPTO_PATENT_FEATURE_COLS:
         assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
-    assert len(FEATURE_COLS) == 88
+    assert len(FEATURE_COLS) == 109
 
 
 def test_uspto_patent_cols_absent_from_short_tier():
@@ -547,13 +547,13 @@ def test_uspto_patent_col_names_correct():
 
 
 def test_feature_cols_includes_labor():
-    """FEATURE_COLS must contain all 4 LABOR_FEATURE_COLS and total must be 88."""
+    """FEATURE_COLS must contain all 4 LABOR_FEATURE_COLS and total must be 109."""
     from models.train import FEATURE_COLS
     from processing.labor_features import LABOR_FEATURE_COLS
     assert len(LABOR_FEATURE_COLS) == 4
     for col in LABOR_FEATURE_COLS:
         assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
-    assert len(FEATURE_COLS) == 88, f"Expected 88 features, got {len(FEATURE_COLS)}"
+    assert len(FEATURE_COLS) == 109, f"Expected 109 features, got {len(FEATURE_COLS)}"
 
 
 def test_labor_cols_absent_from_short_tier():
@@ -596,13 +596,13 @@ def test_labor_col_names_correct():
 
 
 def test_feature_cols_includes_census():
-    """FEATURE_COLS must contain all 6 CENSUS_TRADE_FEATURE_COLS and total must be 88."""
+    """FEATURE_COLS must contain all 6 CENSUS_TRADE_FEATURE_COLS and total must be 109."""
     from models.train import FEATURE_COLS
     from processing.census_trade_features import CENSUS_TRADE_FEATURE_COLS
     assert len(CENSUS_TRADE_FEATURE_COLS) == 6
     for col in CENSUS_TRADE_FEATURE_COLS:
         assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
-    assert len(FEATURE_COLS) == 88, f"Expected 88 features, got {len(FEATURE_COLS)}"
+    assert len(FEATURE_COLS) == 109, f"Expected 109 features, got {len(FEATURE_COLS)}"
 
 
 def test_census_cols_absent_from_short_tier():
@@ -649,13 +649,13 @@ def test_census_col_names_correct():
 # ── EDGAR expanded fundamentals (Task 2: 9→14 columns) ───────────────────────
 
 def test_feature_cols_includes_edgar_expanded():
-    """FEATURE_COLS must contain all 14 FUNDAMENTAL_FEATURE_COLS and total must be 88."""
+    """FEATURE_COLS must contain all 14 FUNDAMENTAL_FEATURE_COLS and total must be 109."""
     from models.train import FEATURE_COLS
     from processing.fundamental_features import FUNDAMENTAL_FEATURE_COLS
     assert len(FUNDAMENTAL_FEATURE_COLS) == 14
     for col in FUNDAMENTAL_FEATURE_COLS:
         assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
-    assert len(FEATURE_COLS) == 88, f"Expected 88 features, got {len(FEATURE_COLS)}"
+    assert len(FEATURE_COLS) == 109, f"Expected 109 features, got {len(FEATURE_COLS)}"
 
 
 def test_edgar_expanded_cols_absent_from_short_tier():
@@ -705,3 +705,40 @@ def test_edgar_expanded_col_names_correct():
         "revenue_growth_accel", "research_to_revenue",
     }
     assert set(FUNDAMENTAL_FEATURE_COLS) == expected
+
+
+def test_feature_cols_includes_physical_ai():
+    """FEATURE_COLS must contain all 21 PHYSICAL_AI_FEATURE_COLS and total must be 109."""
+    from models.train import FEATURE_COLS
+    from processing.physical_ai_features import PHYSICAL_AI_FEATURE_COLS
+    assert len(PHYSICAL_AI_FEATURE_COLS) == 21
+    for col in PHYSICAL_AI_FEATURE_COLS:
+        assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
+    assert len(FEATURE_COLS) == 109, f"Expected 109 features, got {len(FEATURE_COLS)}"
+
+
+def test_physical_ai_cols_absent_from_short_tier():
+    """Physical-AI cols must not appear in short tier — monthly/quarterly cadence too slow for 5d/20d."""
+    from models.train import TIER_FEATURE_COLS
+    from processing.physical_ai_features import PHYSICAL_AI_FEATURE_COLS
+    short = set(TIER_FEATURE_COLS["short"])
+    for col in PHYSICAL_AI_FEATURE_COLS:
+        assert col not in short, f"{col} must not be in short tier"
+
+
+def test_physical_ai_cols_in_medium_tier():
+    """Physical-AI cols must be present in medium tier."""
+    from models.train import TIER_FEATURE_COLS
+    from processing.physical_ai_features import PHYSICAL_AI_FEATURE_COLS
+    medium = set(TIER_FEATURE_COLS["medium"])
+    for col in PHYSICAL_AI_FEATURE_COLS:
+        assert col in medium, f"{col} missing from medium tier"
+
+
+def test_physical_ai_cols_in_long_tier():
+    """Physical-AI cols must be present in long tier."""
+    from models.train import TIER_FEATURE_COLS
+    from processing.physical_ai_features import PHYSICAL_AI_FEATURE_COLS
+    long_cols = set(TIER_FEATURE_COLS["long"])
+    for col in PHYSICAL_AI_FEATURE_COLS:
+        assert col in long_cols, f"{col} missing from long tier"
