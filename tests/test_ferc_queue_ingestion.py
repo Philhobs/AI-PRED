@@ -105,12 +105,31 @@ def test_empty_sheet_no_file_written(tmp_path):
     assert not (tmp_path / "date=2024-01-15").exists()
 
 
-def test_bad_url_raises_runtime_error(tmp_path):
-    """RuntimeError raised when download fails."""
+def test_bad_url_logs_and_returns_empty(tmp_path, caplog):
+    """Download failure logs a warning and returns without raising — fail-soft."""
+    import logging
     from ingestion.ferc_queue_ingestion import ingest_ferc_queue
     import requests as _requests
 
     with patch("ingestion.ferc_queue_ingestion.requests.get") as mock_get:
         mock_get.side_effect = _requests.RequestException("connection refused")
-        with pytest.raises(RuntimeError, match="Failed to download"):
+        with caplog.at_level(logging.WARNING, logger="ingestion.ferc_queue_ingestion"):
             ingest_ferc_queue("2024-01-15", tmp_path, ferc_url="http://bad-url/")
+
+    # No parquet should be written when the download fails.
+    assert not (tmp_path / "date=2024-01-15").exists()
+    assert any("download failed" in rec.message for rec in caplog.records)
+
+
+def test_http_404_logs_and_returns_empty(tmp_path, caplog):
+    """A 404 from the upstream URL also fail-softs, no exception bubbles up."""
+    import logging
+    from ingestion.ferc_queue_ingestion import ingest_ferc_queue
+
+    mock = MagicMock()
+    mock.raise_for_status.side_effect = Exception("404 Not Found")
+    with patch("ingestion.ferc_queue_ingestion.requests.get", return_value=mock):
+        with caplog.at_level(logging.WARNING, logger="ingestion.ferc_queue_ingestion"):
+            ingest_ferc_queue("2024-01-15", tmp_path, ferc_url="http://bad-url/")
+    assert not (tmp_path / "date=2024-01-15").exists()
+    assert any("download failed" in rec.message for rec in caplog.records)

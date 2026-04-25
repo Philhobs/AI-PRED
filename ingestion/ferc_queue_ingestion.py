@@ -146,8 +146,9 @@ def ingest_ferc_queue(
     try:
         resp = requests.get(url, timeout=60)
         resp.raise_for_status()
-    except Exception as exc:
-        raise RuntimeError(f"Failed to download FERC queue from {url}: {exc}") from exc
+    except Exception as exc:  # noqa: BLE001 — fail-soft per project convention
+        _LOG.warning("[FERC] download failed (%s) — skipping this snapshot", exc)
+        return
 
     df = _parse_excel(resp.content, snapshot_date)
 
