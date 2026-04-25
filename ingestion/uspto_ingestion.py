@@ -90,10 +90,26 @@ def _quarter_end(d: "datetime.date") -> "datetime.date":
 
 
 def _bucket_for_cpc(cpc_group: str) -> str | None:
-    """Return the bucket name for a cpc_group_id, or None if it doesn't match any bucket."""
+    """Return the bucket name for a cpc_group_id, or None if no match.
+
+    CPC classes look like 'G05D1/02' (main group + subgroup) or 'B25J9/02' (subclass + main group + subgroup).
+    Strip the subgroup, then check if the head:
+      - Exactly matches a bucket prefix (main-group prefix like 'G05D1' matches only 'G05D1' / 'G05D1/02').
+      - Or starts with a subclass prefix (last char is a letter) followed by a digit
+        (so 'B25J' bucket matches all main groups B25J1, B25J9, B25J11, etc.).
+    """
+    head = cpc_group.split("/", 1)[0]   # 'G05D1/02' -> 'G05D1', 'B25J9' -> 'B25J9'
     for bucket, prefixes in _PHYSICAL_AI_BUCKETS.items():
-        if any(cpc_group.startswith(p) for p in prefixes):
-            return bucket
+        for p in prefixes:
+            if head == p:
+                return bucket
+            if (
+                not p[-1].isdigit()           # prefix is a subclass (e.g. B25J, B64C)
+                and head.startswith(p)
+                and len(head) > len(p)
+                and head[len(p)].isdigit()    # next char is a digit (a main group within the subclass)
+            ):
+                return bucket
     return None
 
 

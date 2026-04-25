@@ -216,3 +216,50 @@ def test_aggregate_physical_ai_drops_non_target_classes():
     agg = _aggregate_physical_ai(raw)
     total = agg["filing_count"].sum()
     assert total == 1
+
+
+def test_aggregate_physical_ai_excludes_g05d_siblings():
+    """G05D1 bucket must NOT include G05D11/G05D13/G05D16/G05D17 (unrelated sibling classes)."""
+    import datetime
+    import polars as pl
+    from ingestion.uspto_ingestion import _aggregate_physical_ai
+
+    raw = pl.DataFrame({
+        "filing_date": [datetime.date(2025, 1, 1)] * 5,
+        "cpc_group":   ["G05D1/02", "G05D11/00", "G05D13/02", "G05D16/00", "G05D17/02"],
+    })
+    agg = _aggregate_physical_ai(raw)
+    g05d1_count = agg.filter(pl.col("cpc_class") == "G05D1")["filing_count"].sum()
+    assert g05d1_count == 1, f"Expected 1 G05D1 patent, got {g05d1_count}"
+
+
+def test_aggregate_physical_ai_b25j_includes_all_subclasses():
+    """B25J bucket MUST include B25J1, B25J9, B25J11, B25J13 etc. — they're sub-groups within the subclass."""
+    import datetime
+    import polars as pl
+    from ingestion.uspto_ingestion import _aggregate_physical_ai
+
+    raw = pl.DataFrame({
+        "filing_date": [datetime.date(2025, 1, 1)] * 5,
+        "cpc_group":   ["B25J9/02", "B25J11/00", "B25J13/00", "B25J15/00", "B25J19/02"],
+    })
+    agg = _aggregate_physical_ai(raw)
+    b25j_count = agg.filter(pl.col("cpc_class") == "B25J")["filing_count"].sum()
+    assert b25j_count == 5, f"Expected all 5 B25J* patents, got {b25j_count}"
+
+
+def test_bucket_for_cpc_handles_exact_main_group_match():
+    """Exact match on a main-group prefix (G05D1, G05B19) returns the bucket."""
+    from ingestion.uspto_ingestion import _bucket_for_cpc
+    assert _bucket_for_cpc("G05D1")    == "G05D1"
+    assert _bucket_for_cpc("G05D1/02") == "G05D1"
+    assert _bucket_for_cpc("G05B19")   == "G05B19"
+    assert _bucket_for_cpc("G05B19/418") == "G05B19"
+
+
+def test_bucket_for_cpc_rejects_g05d1_siblings():
+    """G05D11/G05D13/G05D17 must not be bucketed as G05D1."""
+    from ingestion.uspto_ingestion import _bucket_for_cpc
+    assert _bucket_for_cpc("G05D11/00") is None
+    assert _bucket_for_cpc("G05D13/02") is None
+    assert _bucket_for_cpc("G05D17/00") is None
