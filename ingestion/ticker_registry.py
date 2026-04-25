@@ -1,4 +1,4 @@
-"""Central registry of all 141 AI infrastructure + robotics + cybersecurity tickers.
+"""Central registry of all 149 AI infrastructure + robotics + cybersecurity tickers.
 
 Single source of truth for layer assignments, exchange metadata, and currency.
 CIK_MAP stays in edgar_fundamentals_ingestion.py (backward-compatible).
@@ -146,25 +146,35 @@ TICKERS_INFO: list[TickerInfo] = [
     TickerInfo("GLEN.L",    "metals",         "L",  "GBP", "CH"),
     TickerInfo("RIO.L",     "metals",         "L",  "GBP", "AU"),
     TickerInfo("5713.T",    "metals",         "T",  "JPY", "JP"),
-    # ── Layer 11: Robotics / Automation / Industrial AI (11) ──────────────────
-    TickerInfo("ISRG",      "robotics",       "US", "USD", "US"),
-    TickerInfo("ROK",       "robotics",       "US", "USD", "US"),
-    TickerInfo("ZBRA",      "robotics",       "US", "USD", "US"),
-    TickerInfo("CGNX",      "robotics",       "US", "USD", "US"),
-    TickerInfo("SYM",       "robotics",       "US", "USD", "US"),
-    TickerInfo("ABBN.SW",   "robotics",       "SW", "CHF", "CH"),
-    TickerInfo("KGX.DE",    "robotics",       "DE", "EUR", "DE"),
-    TickerInfo("HEXA-B.ST", "robotics",       "ST", "SEK", "SE"),
-    TickerInfo("6954.T",    "robotics",       "T",  "JPY", "JP"),
-    TickerInfo("6506.T",    "robotics",       "T",  "JPY", "JP"),
-    TickerInfo("6861.T",    "robotics",       "T",  "JPY", "JP"),
-    # ── Layer 12: AI Cybersecurity — Pure Plays (5) ───────────────────────────────
+    # ── Layer 11: Robotics — Industrial Automation (11) ──────────────────────────
+    TickerInfo("ROK",       "robotics_industrial",       "US", "USD", "US"),
+    TickerInfo("ZBRA",      "robotics_industrial",       "US", "USD", "US"),
+    TickerInfo("CGNX",      "robotics_industrial",       "US", "USD", "US"),
+    TickerInfo("SYM",       "robotics_industrial",       "US", "USD", "US"),
+    TickerInfo("EMR",       "robotics_industrial",       "US", "USD", "US"),
+    TickerInfo("ABBN.SW",   "robotics_industrial",       "SW", "CHF", "CH"),
+    TickerInfo("KGX.DE",    "robotics_industrial",       "DE", "EUR", "DE"),
+    TickerInfo("HEXA-B.ST", "robotics_industrial",       "ST", "SEK", "SE"),
+    TickerInfo("6954.T",    "robotics_industrial",       "T",  "JPY", "JP"),
+    TickerInfo("6506.T",    "robotics_industrial",       "T",  "JPY", "JP"),
+    TickerInfo("6861.T",    "robotics_industrial",       "T",  "JPY", "JP"),
+    # ── Layer 12: Robotics — Medical & Humanoid (4) ──────────────────────────────
+    TickerInfo("ISRG",      "robotics_medical_humanoid", "US", "USD", "US"),
+    TickerInfo("TSLA",      "robotics_medical_humanoid", "US", "USD", "US"),
+    TickerInfo("1683.HK",   "robotics_medical_humanoid", "HK", "HKD", "HK"),
+    TickerInfo("005380.KS", "robotics_medical_humanoid", "KS", "KRW", "KR"),
+    # ── Layer 13: Robotics — MCU & Sensor Chips (4) ──────────────────────────────
+    TickerInfo("TXN",       "robotics_mcu_chips",        "US", "USD", "US"),
+    TickerInfo("MCHP",      "robotics_mcu_chips",        "US", "USD", "US"),
+    TickerInfo("ADI",       "robotics_mcu_chips",        "US", "USD", "US"),
+    TickerInfo("6723.T",    "robotics_mcu_chips",        "T",  "JPY", "JP"),
+    # ── Layer 14: AI Cybersecurity — Pure Plays (5) ───────────────────────────────
     TickerInfo("CRWD",   "cyber_pureplay", "US", "USD", "US"),
     TickerInfo("ZS",     "cyber_pureplay", "US", "USD", "US"),
     TickerInfo("S",      "cyber_pureplay", "US", "USD", "US"),
     TickerInfo("DARK.L", "cyber_pureplay", "L",  "GBP", "GB"),
     TickerInfo("VRNS",   "cyber_pureplay", "US", "USD", "US"),
-    # ── Layer 13: AI Cybersecurity — Platform Vendors (9) ─────────────────────────
+    # ── Layer 15: AI Cybersecurity — Platform Vendors (9) ─────────────────────────
     TickerInfo("PANW",   "cyber_platform", "US", "USD", "US"),
     TickerInfo("FTNT",   "cyber_platform", "US", "USD", "US"),
     TickerInfo("CHKP",   "cyber_platform", "US", "USD", "IL"),
@@ -181,23 +191,27 @@ TICKERS_INFO: list[TickerInfo] = [
 LAYER_IDS: dict[str, int] = {
     "cloud": 1, "compute": 2, "semi_equipment": 3, "networking": 4,
     "servers": 5, "datacenter": 6, "power": 7, "cooling": 8,
-    "grid": 9, "metals": 10, "robotics": 11, "cyber_pureplay": 12, "cyber_platform": 13,
+    "grid": 9, "metals": 10,
+    "robotics_industrial": 11, "robotics_medical_humanoid": 12, "robotics_mcu_chips": 13,
+    "cyber_pureplay": 14, "cyber_platform": 15,
 }
 
 LAYER_LABELS: dict[str, str] = {
-    "cloud":          "Hyperscalers / Cloud",
-    "compute":        "AI Compute / Chips",
-    "semi_equipment": "Semiconductor Equipment & Materials",
-    "networking":     "Networking / Interconnect",
-    "servers":        "Servers / Storage / Systems",
-    "datacenter":     "Data Center Operators / REITs",
-    "power":          "Power / Energy / Nuclear",
-    "cooling":        "Cooling / Facilities / Backup Power",
-    "grid":           "Grid / Construction / Electrical",
-    "metals":         "Metals / Materials",
-    "robotics":       "Robotics / Automation / Industrial AI",
-    "cyber_pureplay": "AI Cybersecurity — Pure Plays",
-    "cyber_platform": "AI Cybersecurity — Platform Vendors",
+    "cloud":                       "Hyperscalers / Cloud",
+    "compute":                     "AI Compute / Chips",
+    "semi_equipment":              "Semiconductor Equipment & Materials",
+    "networking":                  "Networking / Interconnect",
+    "servers":                     "Servers / Storage / Systems",
+    "datacenter":                  "Data Center Operators / REITs",
+    "power":                       "Power / Energy / Nuclear",
+    "cooling":                     "Cooling / Facilities / Backup Power",
+    "grid":                        "Grid / Construction / Electrical",
+    "metals":                      "Metals / Materials",
+    "robotics_industrial":         "Robotics — Industrial Automation",
+    "robotics_medical_humanoid":   "Robotics — Medical & Humanoid",
+    "robotics_mcu_chips":          "Robotics — MCU & Sensor Chips",
+    "cyber_pureplay":              "AI Cybersecurity — Pure Plays",
+    "cyber_platform":              "AI Cybersecurity — Platform Vendors",
 }
 
 # ── Generated lookups (single source of truth: TICKERS_INFO) ───────────────
@@ -210,6 +224,23 @@ TICKERS:         list[str]       = sorted(t.symbol for t in TICKERS_INFO)
 
 # Hyperscalers are the demand root — used for graph hop-distance feature.
 HYPERSCALERS: frozenset[str] = frozenset({"MSFT", "AMZN", "GOOGL", "META"})
+
+# Pending-IPO watchlist — humanoid plays expected to list mid-2026 onward.
+# Metadata-only. Not in TICKERS_INFO. Not fetched. Add to TICKERS_INFO when each lists.
+PENDING_IPO_WATCHLIST: list[dict[str, str]] = [
+    {
+        "name": "Unitree Robotics",
+        "expected_symbol": "TBD.SS",
+        "layer": "robotics_medical_humanoid",
+        "expected_date": "2026-Q3",
+    },
+    {
+        "name": "Boston Dynamics",
+        "expected_symbol": "TBD",
+        "layer": "robotics_medical_humanoid",
+        "expected_date": "TBD",
+    },
+]
 
 
 def tickers_in_layer(layer: str) -> list[str]:

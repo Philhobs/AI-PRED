@@ -38,7 +38,7 @@ def test_train_single_layer_creates_artifacts(tmp_path):
     assert names == FEATURE_COLS
 
 
-def test_train_all_layers_creates_13_dirs(tmp_path, monkeypatch):
+def test_train_all_layers_creates_15_dirs(tmp_path, monkeypatch):
     import models.train as train_module
     from ingestion.ticker_registry import layers
     # Monkeypatch build_training_dataset to return synthetic data per layer.
@@ -71,16 +71,16 @@ def test_train_all_layers_creates_13_dirs(tmp_path, monkeypatch):
         artifacts_dir=tmp_path / "artifacts",
         horizon_tag="5d",
     )
-    # 13 layer directories should exist (layers 1–13 including cyber layers),
-    # each containing a horizon_5d/ subdirectory.
+    # 15 layer directories should exist (layers 1–15 including 3 robotics sub-layers
+    # + 2 cyber layers), each containing a horizon_5d/ subdirectory.
     layer_dirs = list((tmp_path / "artifacts").glob("layer_*"))
-    assert len(layer_dirs) == 13
+    assert len(layer_dirs) == 15
     for layer_dir in layer_dirs:
         assert (layer_dir / "horizon_5d").exists(), f"horizon_5d/ missing under {layer_dir}"
 
 
 def test_inference_merges_all_layers(tmp_path, monkeypatch):
-    """run_inference returns one row per ticker across all 13 layers."""
+    """run_inference returns one row per ticker across all 15 layers."""
     import models.train as train_module
     import models.inference as infer_module
     from models.train import train_single_layer, FEATURE_COLS

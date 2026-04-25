@@ -3,8 +3,10 @@
 
 def test_ticker_count():
     from ingestion.ticker_registry import TICKERS, TICKER_LAYERS
-    assert len(TICKERS) == 141       # 127 + 5 cyber_pureplay + 9 cyber_platform
-    assert len(TICKER_LAYERS) == 141
+    # 141 + 8 new robotics-pillar tickers (EMR, TSLA, 1683.HK, 005380.KS,
+    # TXN, MCHP, 6723.T, ADI) = 149.
+    assert len(TICKERS) == 149
+    assert len(TICKER_LAYERS) == 149
 
 
 def test_all_layers_present():
@@ -26,16 +28,19 @@ def test_hyperscalers_are_cloud():
         assert TICKER_LAYERS[t] == "cloud"
 
 
-def test_layers_returns_13():
+def test_layers_returns_15():
     from ingestion.ticker_registry import layers
-    assert len(layers()) == 13
+    assert len(layers()) == 15
 
 
 def test_layers_order():
     from ingestion.ticker_registry import layers
     result = layers()
     assert result[0] == "cloud"
-    assert result[-3] == "robotics"
+    # robotics pillar (ids 11/12/13) comes before cyber pillar (14/15)
+    assert result[-5] == "robotics_industrial"
+    assert result[-4] == "robotics_medical_humanoid"
+    assert result[-3] == "robotics_mcu_chips"
     assert result[-2] == "cyber_pureplay"
     assert result[-1] == "cyber_platform"
 
@@ -43,7 +48,7 @@ def test_layers_order():
 def test_cyber_pureplay_layer_populated():
     from ingestion.ticker_registry import tickers_in_layer, LAYER_IDS
     assert "cyber_pureplay" in LAYER_IDS
-    assert LAYER_IDS["cyber_pureplay"] == 12
+    assert LAYER_IDS["cyber_pureplay"] == 14   # was 12, shifted by robotics split
     tickers = tickers_in_layer("cyber_pureplay")
     assert len(tickers) == 5
     assert "CRWD" in tickers
@@ -56,7 +61,7 @@ def test_cyber_pureplay_layer_populated():
 def test_cyber_platform_layer_populated():
     from ingestion.ticker_registry import tickers_in_layer, LAYER_IDS
     assert "cyber_platform" in LAYER_IDS
-    assert LAYER_IDS["cyber_platform"] == 13
+    assert LAYER_IDS["cyber_platform"] == 15   # was 13, shifted by robotics split
     tickers = tickers_in_layer("cyber_platform")
     assert len(tickers) == 9
     for expected in ["PANW", "FTNT", "CHKP", "CYBR", "TENB", "QLYS", "OKTA", "AKAM", "RPD"]:
@@ -100,23 +105,67 @@ def test_tickerinfo_fields_complete():
     assert len(symbols) == len(set(symbols)), "Duplicate symbols found"
 
 
-def test_robotics_layer_populated():
+def test_robotics_industrial_layer_populated():
     from ingestion.ticker_registry import tickers_in_layer, LAYER_IDS
-    assert "robotics" in LAYER_IDS
-    assert LAYER_IDS["robotics"] == 11
-    robotics = tickers_in_layer("robotics")
-    assert len(robotics) == 11
-    assert "ABBN.SW" in robotics
-    assert "6954.T"  in robotics
-    assert "ISRG"    in robotics
+    assert "robotics_industrial" in LAYER_IDS
+    assert LAYER_IDS["robotics_industrial"] == 11
+    industrial = tickers_in_layer("robotics_industrial")
+    assert len(industrial) == 11
+    expected = {"ROK", "ZBRA", "CGNX", "SYM", "ABBN.SW", "KGX.DE",
+                "HEXA-B.ST", "6954.T", "6506.T", "6861.T", "EMR"}
+    assert set(industrial) == expected
+
+
+def test_robotics_medical_humanoid_layer_populated():
+    from ingestion.ticker_registry import tickers_in_layer, LAYER_IDS
+    assert "robotics_medical_humanoid" in LAYER_IDS
+    assert LAYER_IDS["robotics_medical_humanoid"] == 12
+    mh = tickers_in_layer("robotics_medical_humanoid")
+    assert len(mh) == 4
+    assert set(mh) == {"ISRG", "TSLA", "1683.HK", "005380.KS"}
+
+
+def test_robotics_mcu_chips_layer_populated():
+    from ingestion.ticker_registry import tickers_in_layer, LAYER_IDS
+    assert "robotics_mcu_chips" in LAYER_IDS
+    assert LAYER_IDS["robotics_mcu_chips"] == 13
+    mcu = tickers_in_layer("robotics_mcu_chips")
+    assert len(mcu) == 4
+    assert set(mcu) == {"TXN", "MCHP", "6723.T", "ADI"}
+
+
+def test_legacy_robotics_key_removed():
+    """The flat 'robotics' layer key must not exist after the split."""
+    from ingestion.ticker_registry import LAYER_IDS, LAYER_LABELS
+    assert "robotics" not in LAYER_IDS
+    assert "robotics" not in LAYER_LABELS
 
 
 def test_non_usd_tickers():
     from ingestion.ticker_registry import non_usd_tickers, TICKER_CURRENCY
+    # Was 37; +1683.HK (HKD) +005380.KS (KRW) +6723.T (JPY) = 40
     result = non_usd_tickers()
-    assert len(result) == 37    # was 36; +DARK.L (GBP)
+    assert len(result) == 40
     for t in result:
         assert TICKER_CURRENCY[t] != "USD", f"{t} is USD but in non_usd_tickers()"
     assert "NVDA" not in result
     assert "ABBN.SW" in result
     assert "DARK.L" in result
+    assert "1683.HK" in result
+    assert "005380.KS" in result
+    assert "6723.T" in result
+
+
+def test_pending_ipo_watchlist_structure():
+    """PENDING_IPO_WATCHLIST entries are well-formed and reference real layers."""
+    from ingestion.ticker_registry import PENDING_IPO_WATCHLIST, LAYER_IDS
+    assert len(PENDING_IPO_WATCHLIST) >= 2
+    required_keys = {"name", "expected_symbol", "layer", "expected_date"}
+    for entry in PENDING_IPO_WATCHLIST:
+        assert required_keys <= entry.keys(), f"Missing keys in {entry}"
+        assert entry["layer"] in LAYER_IDS, (
+            f"Layer {entry['layer']!r} not in LAYER_IDS"
+        )
+    names = {e["name"] for e in PENDING_IPO_WATCHLIST}
+    assert "Unitree Robotics" in names
+    assert "Boston Dynamics" in names
