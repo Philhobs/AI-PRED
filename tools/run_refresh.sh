@@ -6,6 +6,7 @@ set -e
 
 cd "$(dirname "$0")/.."
 echo "Starting full pipeline refresh at $(date)"
+python -c "from ingestion.ticker_registry import PENDING_IPO_WATCHLIST; print(f'  ({len(PENDING_IPO_WATCHLIST)} pending-IPO tickers awaiting listing)')"
 
 echo ""
 echo "=== 1/16  OHLCV price data ==="
