@@ -210,3 +210,24 @@ def test_jolts_filter_uses_naics_333_only(tmp_path: Path):
     assert out["phys_ai_machinery_jobs_level"][0] == 75.0
     # yoy = (75 - 60) / 60 = 0.25
     assert out["phys_ai_machinery_jobs_yoy"][0] == pytest.approx(0.25, rel=1e-6)
+
+
+def test_value_at_tolerance_boundary_inclusive():
+    """tolerance_days exactly equals diff → value passes; +1 day → None."""
+    from datetime import date, timedelta
+    import polars as pl
+    from processing.physical_ai_features import _value_at
+
+    obs_date = date(2025, 1, 14)
+    df = pl.DataFrame(
+        {"date": [obs_date], "value": [100.0]},
+        schema={"date": pl.Date, "value": pl.Float64},
+    )
+
+    # Exactly 60 days later — should pass (60 > 60 is False)
+    query_60 = obs_date + timedelta(days=60)
+    assert _value_at(df, query_60, "value", "date", 60) == 100.0
+
+    # 61 days later — should be None (61 > 60 is True)
+    query_61 = obs_date + timedelta(days=61)
+    assert _value_at(df, query_61, "value", "date", 60) is None

@@ -96,6 +96,7 @@ def _load_jolts(jolts_dir: Path) -> pl.DataFrame:
         return pl.DataFrame(schema={"period_date": pl.Date, "value": pl.Float64})
     df = pl.concat([pl.read_parquet(f) for f in files])
     df = df.filter(pl.col("series_id") == _JOLTS_NAICS_333)
+    df = df.filter(pl.col("period").str.starts_with("M"))
     df = df.with_columns(
         pl.date(pl.col("year"), pl.col("period").str.slice(1, 2).cast(pl.Int32), 1).alias("period_date")
     )
