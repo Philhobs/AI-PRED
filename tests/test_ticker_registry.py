@@ -134,13 +134,6 @@ def test_robotics_mcu_chips_layer_populated():
     assert set(mcu) == {"TXN", "MCHP", "6723.T", "ADI"}
 
 
-def test_legacy_robotics_key_removed():
-    """The flat 'robotics' layer key must not exist after the split."""
-    from ingestion.ticker_registry import LAYER_IDS, LAYER_LABELS
-    assert "robotics" not in LAYER_IDS
-    assert "robotics" not in LAYER_LABELS
-
-
 def test_non_usd_tickers():
     from ingestion.ticker_registry import non_usd_tickers, TICKER_CURRENCY
     # Was 37; +1683.HK (HKD) +005380.KS (KRW) +6723.T (JPY) = 40

@@ -14,8 +14,8 @@ class TickerInfo:
 
     symbol: str    # yfinance-compatible: "NVDA", "ABBN.SW", "6954.T"
     layer: str     # layer name (one of LAYER_IDS keys)
-    exchange: str  # "US","DE","PA","SW","MI","CO","ST","OL","L","AS","BR","MC","T"
-    currency: str  # ISO 4217: "USD","EUR","CHF","JPY","DKK","SEK","NOK","GBP"
+    exchange: str  # "US","DE","PA","SW","MI","CO","ST","OL","L","AS","BR","MC","T","HK","KS"
+    currency: str  # ISO 4217: "USD","EUR","CHF","JPY","DKK","SEK","NOK","GBP","HKD","KRW"
     country: str   # ISO 3166-1 alpha-2
 
 
