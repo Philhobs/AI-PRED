@@ -209,9 +209,13 @@ def fetch_applications(date_str: str) -> pl.DataFrame:
             "f": ["app_id", "assignee_organization", "cpc_group_id", "app_date"],
             "o": {"per_page": _PER_PAGE, "page": page},
         }
-        resp = requests.post(_APPS_URL, json=payload, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()
+        try:
+            resp = requests.post(_APPS_URL, json=payload, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:  # noqa: BLE001 — fail-soft per project convention
+            _LOG.warning("[USPTO] applications page=%d fetch failed (%s) — stopping", page, exc)
+            break
         batch = data.get("applications", [])
         records.extend(batch)
 
@@ -264,9 +268,13 @@ def fetch_grants(date_str: str) -> pl.DataFrame:
             "f": ["patent_id", "assignee_organization", "cpc_group_id", "patent_date", "cited_by_count"],
             "o": {"per_page": _PER_PAGE, "page": page},
         }
-        resp = requests.post(_GRANTS_URL, json=payload, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()
+        try:
+            resp = requests.post(_GRANTS_URL, json=payload, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:  # noqa: BLE001 — fail-soft per project convention
+            _LOG.warning("[USPTO] grants page=%d fetch failed (%s) — stopping", page, exc)
+            break
         batch = data.get("patents", [])
         records.extend(batch)
 

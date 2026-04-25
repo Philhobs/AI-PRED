@@ -203,6 +203,38 @@ def test_aggregate_physical_ai_b64_combines_subclasses():
     assert agg.filter(pl.col("cpc_class") == "B64")["filing_count"][0] == 3
 
 
+def test_fetch_applications_fails_soft_on_http_error(caplog):
+    """fetch_applications returns empty DataFrame and logs warning on bad JSON / 5xx."""
+    import logging
+    from ingestion.uspto_ingestion import fetch_applications
+
+    with patch("ingestion.uspto_ingestion.requests.post") as mock_post:
+        mock_post.side_effect = Exception("Expecting value: line 1 column 1 (char 0)")
+        with caplog.at_level(logging.WARNING, logger="ingestion.uspto_ingestion"):
+            df = fetch_applications("2025-01-01")
+
+    assert df.is_empty()
+    assert df.schema == _APP_SCHEMA
+    assert any("applications" in rec.message and "fetch failed" in rec.message
+               for rec in caplog.records)
+
+
+def test_fetch_grants_fails_soft_on_http_error(caplog):
+    """fetch_grants returns empty DataFrame and logs warning on bad JSON / 5xx."""
+    import logging
+    from ingestion.uspto_ingestion import fetch_grants
+
+    with patch("ingestion.uspto_ingestion.requests.post") as mock_post:
+        mock_post.side_effect = Exception("Service Unavailable")
+        with caplog.at_level(logging.WARNING, logger="ingestion.uspto_ingestion"):
+            df = fetch_grants("2025-01-01")
+
+    assert df.is_empty()
+    assert df.schema == _GRANT_SCHEMA
+    assert any("grants" in rec.message and "fetch failed" in rec.message
+               for rec in caplog.records)
+
+
 def test_aggregate_physical_ai_drops_non_target_classes():
     """Filings whose CPC group doesn't match any of the 6 buckets are dropped."""
     import datetime
