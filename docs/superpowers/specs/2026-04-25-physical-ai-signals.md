@@ -18,7 +18,7 @@ The robotics-pillar tickers (industrial automation, medical/humanoid, MCU chips)
 
 No assignee whitelist on patents — capture industry-wide growth (a Waymo or Skydio patent surge benefits NVDA and TXN even though those companies aren't in our registry).
 
-## Data sources (all free, no key required)
+## Data sources (all free; FRED_API_KEY required, others keyless)
 
 ### FRED (4 series)
 
@@ -30,6 +30,8 @@ No assignee whitelist on patents — capture industry-wide growth (a Waymo or Sk
 | `WPU114` | PPI: Industrial Machinery | Monthly | ~mid-month |
 
 **Fallback for `NAPM`:** if not reachable, try `USAPMI`. If neither, log warning and ship 3 FRED series; tests adjust to 108 features.
+
+**FRED API key:** required for every request — without it FRED returns HTTP 400. Register free at https://fred.stlouisfed.org/docs/api/api_key.html and set `FRED_API_KEY` in `.env`. The module fail-softs (writes empty parquet, logs warning) when the key is missing.
 
 ### BLS JOLTS (1 new series)
 

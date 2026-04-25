@@ -10,7 +10,10 @@ automation and physical-AI growth:
 Output: data/raw/robotics_signals/{series_id}.parquet
 Schema: date (Date), value (Float64).
 
-Free, no API key required (FRED_API_KEY env var increases rate limit).
+REQUIRES FRED_API_KEY in .env — register free at
+https://fred.stlouisfed.org/docs/api/api_key.html. Without a key, every
+request returns HTTP 400 Bad Request. Module fail-softs (writes empty parquet,
+logs warning) when the key is missing or any other error occurs.
 FRED returns '.' for missing observations — converted to null.
 """
 from __future__ import annotations
