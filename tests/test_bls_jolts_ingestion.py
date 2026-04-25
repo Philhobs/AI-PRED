@@ -4,7 +4,9 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from ingestion.bls_jolts_ingestion import _SCHEMA, _SERIES_ID
+from ingestion.bls_jolts_ingestion import _SCHEMA, _SERIES_IDS
+
+_SERIES_ID = _SERIES_IDS[0]  # JTS510000000000000JOL — used by existing test helpers
 
 
 def _make_jolts_response(data_rows: list[dict]) -> MagicMock:
@@ -93,3 +95,47 @@ def test_empty_series_no_file_written(tmp_path):
         ingest_bls_jolts("2024-04-01", tmp_path)
 
     assert not (tmp_path / "date=2024-04-01").exists()
+
+
+def test_series_ids_include_naics_333():
+    """_SERIES_IDS must contain both NAICS 51 (Information) and NAICS 333 (Machinery)."""
+    from ingestion.bls_jolts_ingestion import _SERIES_IDS
+    assert set(_SERIES_IDS) == {
+        "JTS510000000000000JOL",
+        "JTS333000000000000JOL",
+    }
+
+
+def test_fetch_jolts_returns_rows_for_both_series():
+    """fetch_jolts returns rows for both NAICS 51 and 333 when both come back from BLS."""
+    from unittest.mock import patch
+    from ingestion.bls_jolts_ingestion import fetch_jolts
+
+    fake_response = {
+        "Results": {
+            "series": [
+                {
+                    "seriesID": "JTS510000000000000JOL",
+                    "data": [
+                        {"year": "2025", "period": "M01", "value": "100.0"},
+                    ],
+                },
+                {
+                    "seriesID": "JTS333000000000000JOL",
+                    "data": [
+                        {"year": "2025", "period": "M01", "value": "50.0"},
+                    ],
+                },
+            ]
+        }
+    }
+    fake_resp = type("R", (), {
+        "json": lambda self: fake_response,
+        "raise_for_status": lambda self: None,
+    })()
+
+    with patch("ingestion.bls_jolts_ingestion.requests.post", return_value=fake_resp):
+        df = fetch_jolts("2025-02-15")
+
+    assert df["series_id"].to_list().count("JTS510000000000000JOL") == 1
+    assert df["series_id"].to_list().count("JTS333000000000000JOL") == 1

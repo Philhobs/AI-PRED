@@ -48,9 +48,12 @@ def _load_jolts(jolts_dir: Path) -> pl.DataFrame:
     files = sorted(jolts_dir.glob("date=*/openings.parquet")) if jolts_dir.exists() else []
     if not files:
         return pl.DataFrame(schema=_JOLTS_SCHEMA)
+    # Filter to NAICS 51 (Information) only — other series (e.g. NAICS 333) are
+    # consumed by dedicated feature modules and must not pollute this feature.
     # Dedup: keep the most recent snapshot's value for each (year, period)
     return (
         pl.concat([pl.read_parquet(f) for f in files])
+        .filter(pl.col("series_id") == "JTS510000000000000JOL")
         .sort("date")
         .unique(subset=["year", "period"], keep="last")
     )

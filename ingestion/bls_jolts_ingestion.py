@@ -1,11 +1,13 @@
-"""BLS JOLTS tech sector job openings ingestion.
+"""BLS JOLTS sector job openings ingestion — Information (NAICS 51) + Machinery (NAICS 333).
 
-Fetches Information sector (NAICS 51) job openings from BLS API v2.
-Series: JTS510000000000000JOL (job openings level, thousands, seasonally adjusted)
-Output: data/raw/bls_jolts/date=YYYY-MM-DD/openings.parquet
+Fetches both sectors from BLS API v2:
+  JTS510000000000000JOL  — Information (NAICS 51)
+  JTS333000000000000JOL  — Machinery Manufacturing (NAICS 333)
+
+Output: data/raw/bls_jolts/date=YYYY-MM-DD/openings.parquet (one row per series_id × month)
 
 Fetches current year + prior year (BLS API uses full calendar years, not rolling windows).
-Feature module filters rows by period_date <= query_date at join time.
+Feature module filters rows by period_date <= query_date and series_id at join time.
 
 Staleness guard: skips re-download if existing snapshot is from the same calendar month
 (BLS JOLTS publishes monthly data with ~6-week publication lag).
@@ -23,7 +25,10 @@ import requests
 _LOG = logging.getLogger(__name__)
 
 _BLS_URL = "https://api.bls.gov/publicAPI/v2/timeseries/data/"
-_SERIES_ID = "JTS510000000000000JOL"
+_SERIES_IDS: tuple[str, ...] = (
+    "JTS510000000000000JOL",   # NAICS 51 — Information sector
+    "JTS333000000000000JOL",   # NAICS 333 — Machinery Manufacturing (robotics-pillar adoption proxy)
+)
 
 _SCHEMA = {
     "date": pl.Date,
@@ -57,7 +62,7 @@ def fetch_jolts(date_str: str) -> pl.DataFrame:
     """
     today = datetime.date.fromisoformat(date_str)
     payload: dict = {
-        "seriesid": [_SERIES_ID],
+        "seriesid": list(_SERIES_IDS),
         "startyear": str(today.year - 1),
         "endyear": str(today.year),
     }
@@ -74,26 +79,28 @@ def fetch_jolts(date_str: str) -> pl.DataFrame:
         return pl.DataFrame(schema=_SCHEMA)
 
     rows = []
-    for entry in series_list[0].get("data", []):
-        period = entry.get("period", "")
-        if period not in _MONTHLY_PERIODS:
-            continue
-        try:
-            year = int(entry["year"])
-            value = float(entry["value"])
-        except (KeyError, ValueError, TypeError):
-            continue
-        rows.append({
-            "date": today,
-            "series_id": _SERIES_ID,
-            "year": year,
-            "period": period,
-            "value": value,
-        })
+    for series in series_list:
+        sid = series.get("seriesID", "")
+        for entry in series.get("data", []):
+            period = entry.get("period", "")
+            if period not in _MONTHLY_PERIODS:
+                continue
+            try:
+                year = int(entry["year"])
+                month = int(period[1:])
+                value = float(entry["value"])
+            except (KeyError, ValueError):
+                continue
+            rows.append({
+                "date": datetime.date.fromisoformat(date_str),
+                "series_id": sid,
+                "year": year,
+                "period": period,
+                "value": value,
+            })
 
     if not rows:
         return pl.DataFrame(schema=_SCHEMA)
-
     return pl.DataFrame(rows, schema=_SCHEMA)
 
 
