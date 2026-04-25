@@ -23,6 +23,23 @@ _LOG = logging.getLogger(__name__)
 _APPS_URL = "https://api.patentsview.org/applications/query"
 _GRANTS_URL = "https://api.patentsview.org/patents/query"
 _CPC_CODES = ["G06N", "H01L", "G06F", "G11C"]
+
+# Physical-AI mode: map bucket name → CPC class prefixes that count toward it.
+# A patent's cpc_group_id must START WITH any of the prefixes to be counted in that bucket.
+_PHYSICAL_AI_BUCKETS: dict[str, tuple[str, ...]] = {
+    "B25J":   ("B25J",),
+    "B64":    ("B64C", "B64U"),
+    "B60W":   ("B60W",),
+    "G05D1":  ("G05D1",),
+    "G05B19": ("G05B19",),
+    "G06V":   ("G06V",),
+}
+
+_PHYSICAL_AI_AGG_SCHEMA = {
+    "quarter_end": pl.Date,
+    "cpc_class":   pl.Utf8,
+    "filing_count": pl.Int64,
+}
 _PER_PAGE = 100
 _SLEEP_BETWEEN_PAGES = 1.5
 _MAX_PAGES = 200  # safety circuit breaker: ~20,000 records maximum
@@ -57,6 +74,104 @@ def _same_iso_week(existing_dir: Path, today_str: str) -> bool:
         return last_iso.week == today_iso.week and last_iso.year == today_iso.year
     except ValueError:
         return False
+
+
+def _quarter_end(d: "datetime.date") -> "datetime.date":
+    """Return the last calendar day of d's quarter (Mar 31 / Jun 30 / Sep 30 / Dec 31)."""
+    quarter = (d.month - 1) // 3 + 1
+    last_month = quarter * 3
+    if last_month == 3:
+        return datetime.date(d.year, 3, 31)
+    if last_month == 6:
+        return datetime.date(d.year, 6, 30)
+    if last_month == 9:
+        return datetime.date(d.year, 9, 30)
+    return datetime.date(d.year, 12, 31)
+
+
+def _bucket_for_cpc(cpc_group: str) -> str | None:
+    """Return the bucket name for a cpc_group_id, or None if it doesn't match any bucket."""
+    for bucket, prefixes in _PHYSICAL_AI_BUCKETS.items():
+        if any(cpc_group.startswith(p) for p in prefixes):
+            return bucket
+    return None
+
+
+def _aggregate_physical_ai(raw: pl.DataFrame) -> pl.DataFrame:
+    """Aggregate raw filings (filing_date, cpc_group) → (quarter_end, cpc_class, filing_count)."""
+    if raw.is_empty():
+        return pl.DataFrame(schema=_PHYSICAL_AI_AGG_SCHEMA)
+
+    df = raw.with_columns([
+        pl.col("filing_date").map_elements(_quarter_end, return_dtype=pl.Date).alias("quarter_end"),
+        pl.col("cpc_group").map_elements(_bucket_for_cpc, return_dtype=pl.Utf8).alias("cpc_class"),
+    ])
+    df = df.filter(pl.col("cpc_class").is_not_null())
+    if df.is_empty():
+        return pl.DataFrame(schema=_PHYSICAL_AI_AGG_SCHEMA)
+    return (
+        df.group_by(["quarter_end", "cpc_class"])
+          .agg(pl.len().alias("filing_count").cast(pl.Int64))
+          .sort(["quarter_end", "cpc_class"])
+    )
+
+
+def fetch_physical_ai_filings(date_str: str) -> pl.DataFrame:
+    """Fetch all filings in the 365-day window ending date_str whose cpc_group matches
+    any physical-AI bucket prefix. Returns aggregated (quarter_end, cpc_class, filing_count)."""
+    start = _lookback_start(date_str)
+    all_prefixes = sorted({p for prefixes in _PHYSICAL_AI_BUCKETS.values() for p in prefixes})
+
+    records: list[dict] = []
+    for prefix in all_prefixes:
+        page = 1
+        while page <= _MAX_PAGES:
+            payload = {
+                "q": {"_and": [
+                    {"_gte": {"app_date": start}},
+                    {"_lte": {"app_date": date_str}},
+                    {"_begins": {"cpc_group_id": prefix}},
+                ]},
+                "f": ["app_id", "cpc_group_id", "app_date"],
+                "o": {"per_page": _PER_PAGE, "page": page},
+            }
+            try:
+                resp = requests.post(_APPS_URL, json=payload, timeout=30)
+                resp.raise_for_status()
+                page_data = resp.json().get("applications", [])
+            except Exception as exc:  # noqa: BLE001
+                _LOG.warning("[USPTO] physical_ai prefix=%s page=%d: %s", prefix, page, exc)
+                break
+            if not page_data:
+                break
+            for entry in page_data:
+                try:
+                    fd = datetime.date.fromisoformat(entry["app_date"])
+                except (KeyError, ValueError):
+                    continue
+                cpc = entry.get("cpc_group_id", "")
+                if not cpc:
+                    continue
+                records.append({"filing_date": fd, "cpc_group": cpc})
+            page += 1
+            time.sleep(_SLEEP_BETWEEN_PAGES)
+
+    raw = pl.DataFrame(records, schema={"filing_date": pl.Date, "cpc_group": pl.Utf8})
+    return _aggregate_physical_ai(raw)
+
+
+def save_physical_ai_filings(out_dir: Path, agg: pl.DataFrame) -> None:
+    """Write one parquet per cpc_class bucket. Schema: (quarter_end, cpc_class, filing_count)."""
+    if agg.is_empty():
+        return
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for bucket in _PHYSICAL_AI_BUCKETS:
+        sub = agg.filter(pl.col("cpc_class") == bucket)
+        if sub.is_empty():
+            continue
+        bucket_dir = out_dir / f"cpc_class={bucket}"
+        bucket_dir.mkdir(parents=True, exist_ok=True)
+        sub.write_parquet(bucket_dir / "filings.parquet", compression="snappy")
 
 
 def fetch_applications(date_str: str) -> pl.DataFrame:
@@ -204,6 +319,14 @@ def ingest_uspto(date_str: str, apps_dir: Path, grants_dir: Path) -> None:
 if __name__ == "__main__":
     import sys
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+    _ROOT = Path(__file__).parent.parent
     date_str = datetime.date.today().isoformat()
     base = Path("data/raw/patents")
     ingest_uspto(date_str, base / "applications", base / "grants")
+
+    today = datetime.date.today().isoformat()
+    physical_ai_dir = _ROOT / "data" / "raw" / "uspto" / "physical_ai"
+    _LOG.info("Fetching physical-AI patent filings (6 CPC buckets)...")
+    agg = fetch_physical_ai_filings(today)
+    save_physical_ai_filings(physical_ai_dir, agg)
+    _LOG.info("[USPTO] physical_ai: %d (quarter, bucket) rows written", len(agg))

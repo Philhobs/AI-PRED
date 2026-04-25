@@ -143,3 +143,76 @@ def test_rate_limit_sleep_between_pages():
             fetch_applications("2024-01-15")
 
     mock_sleep.assert_called_once_with(1.5)
+
+
+def test_physical_ai_buckets_definition():
+    """_PHYSICAL_AI_BUCKETS maps each bucket to its CPC class prefixes."""
+    from ingestion.uspto_ingestion import _PHYSICAL_AI_BUCKETS
+    assert set(_PHYSICAL_AI_BUCKETS) == {
+        "B25J", "B64", "B60W", "G05D1", "G05B19", "G06V",
+    }
+    assert set(_PHYSICAL_AI_BUCKETS["B64"]) == {"B64C", "B64U"}
+    assert _PHYSICAL_AI_BUCKETS["B25J"] == ("B25J",)
+
+
+def test_physical_ai_quarter_end_for_filing_date():
+    """_quarter_end maps any filing_date to the last day of its calendar quarter."""
+    import datetime
+    from ingestion.uspto_ingestion import _quarter_end
+    assert _quarter_end(datetime.date(2025, 1, 15)) == datetime.date(2025, 3, 31)
+    assert _quarter_end(datetime.date(2025, 4, 1))  == datetime.date(2025, 6, 30)
+    assert _quarter_end(datetime.date(2025, 7, 31)) == datetime.date(2025, 9, 30)
+    assert _quarter_end(datetime.date(2025, 12, 31)) == datetime.date(2025, 12, 31)
+
+
+def test_aggregate_physical_ai_groups_by_quarter_and_bucket():
+    """_aggregate_physical_ai counts filings per (quarter_end, bucket)."""
+    import datetime
+    import polars as pl
+    from ingestion.uspto_ingestion import _aggregate_physical_ai
+
+    raw = pl.DataFrame({
+        "filing_date": [
+            datetime.date(2025, 1, 15),  # Q1, B25J
+            datetime.date(2025, 2, 1),   # Q1, B25J
+            datetime.date(2025, 4, 5),   # Q2, B64C → B64
+            datetime.date(2025, 4, 6),   # Q2, B64U → B64
+            datetime.date(2025, 5, 1),   # Q2, G06V
+        ],
+        "cpc_group": ["B25J9", "B25J11", "B64C39", "B64U10", "G06V20"],
+    })
+
+    agg = _aggregate_physical_ai(raw)
+    rows = {(r["quarter_end"], r["cpc_class"]): r["filing_count"] for r in agg.to_dicts()}
+    assert rows[(datetime.date(2025, 3, 31), "B25J")] == 2
+    assert rows[(datetime.date(2025, 6, 30), "B64")] == 2
+    assert rows[(datetime.date(2025, 6, 30), "G06V")] == 1
+
+
+def test_aggregate_physical_ai_b64_combines_subclasses():
+    """B64 bucket sums filings that match B64C* OR B64U*."""
+    import datetime
+    import polars as pl
+    from ingestion.uspto_ingestion import _aggregate_physical_ai
+
+    raw = pl.DataFrame({
+        "filing_date": [datetime.date(2025, 1, 1)] * 3,
+        "cpc_group": ["B64C39", "B64U10", "B64U99"],
+    })
+    agg = _aggregate_physical_ai(raw)
+    assert agg.filter(pl.col("cpc_class") == "B64")["filing_count"][0] == 3
+
+
+def test_aggregate_physical_ai_drops_non_target_classes():
+    """Filings whose CPC group doesn't match any of the 6 buckets are dropped."""
+    import datetime
+    import polars as pl
+    from ingestion.uspto_ingestion import _aggregate_physical_ai
+
+    raw = pl.DataFrame({
+        "filing_date": [datetime.date(2025, 1, 1)] * 3,
+        "cpc_group": ["B25J9", "H01L21", "G06F8"],   # only B25J9 matches
+    })
+    agg = _aggregate_physical_ai(raw)
+    total = agg["filing_count"].sum()
+    assert total == 1
