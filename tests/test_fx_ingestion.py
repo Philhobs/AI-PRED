@@ -123,3 +123,43 @@ def test_fetch_fx_rates_handles_multiindex_columns():
     assert df["date"].dtype == pl.Date
     assert df["rate"].dtype == pl.Float64
     assert abs(df["rate"][0] - 1.08) < 0.001
+
+
+def test_supported_currencies_includes_hkd_krw():
+    """SUPPORTED_CURRENCIES must cover the 9 currencies used by the registry."""
+    from ingestion.fx_ingestion import SUPPORTED_CURRENCIES
+    assert SUPPORTED_CURRENCIES == frozenset({
+        "EUR", "CHF", "JPY", "DKK", "SEK", "NOK", "GBP", "HKD", "KRW",
+    })
+
+
+def test_currency_to_pair_includes_hkd_krw():
+    """CURRENCY_TO_PAIR must map HKD→HKDUSD and KRW→KRWUSD."""
+    from ingestion.fx_ingestion import CURRENCY_TO_PAIR
+    assert CURRENCY_TO_PAIR["HKD"] == "HKDUSD"
+    assert CURRENCY_TO_PAIR["KRW"] == "KRWUSD"
+
+
+def test_fetch_fx_rates_default_pair_count():
+    """Default fetch covers 9 pairs."""
+    from ingestion.fx_ingestion import _FX_SYMBOLS
+    assert len(_FX_SYMBOLS) == 9
+    assert _FX_SYMBOLS["HKDUSD"] == "HKDUSD=X"
+    assert _FX_SYMBOLS["KRWUSD"] == "KRWUSD=X"
+
+
+def test_fetch_fx_rates_hkd_krw_happy_path():
+    """fetch_fx_rates returns valid DataFrames for HKDUSD and KRWUSD."""
+    from unittest.mock import patch
+    from ingestion.fx_ingestion import fetch_fx_rates
+
+    mock_data = _mock_yf_response([7.78, 7.79], ["2025-01-01", "2025-01-02"])
+    with patch("ingestion.fx_ingestion.yf.download", return_value=mock_data):
+        result = fetch_fx_rates(["HKDUSD", "KRWUSD"], years=1)
+
+    assert "HKDUSD" in result and "KRWUSD" in result
+    for pair in ("HKDUSD", "KRWUSD"):
+        df = result[pair]
+        assert df["rate"].dtype == pl.Float64
+        assert df["date"].dtype == pl.Date
+        assert len(df) == 2

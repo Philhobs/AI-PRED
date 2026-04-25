@@ -1,6 +1,6 @@
 """Daily FX rate ingestion via yfinance.
 
-Fetches 7 currency pairs needed for USD-normalizing non-USD tickers.
+Fetches 9 currency pairs needed for USD-normalizing non-USD tickers.
 Saves to data/raw/financials/fx/{pair}.parquet (e.g., EURUSD.parquet).
 Schema: date (pl.Date), rate (pl.Float64).
 """
@@ -25,10 +25,14 @@ _FX_SYMBOLS: dict[str, str] = {
     "SEKUSD": "SEKUSD=X",
     "NOKUSD": "NOKUSD=X",
     "GBPUSD": "GBPUSD=X",
+    "HKDUSD": "HKDUSD=X",
+    "KRWUSD": "KRWUSD=X",
 }
 
 # All currency codes covered by _FX_SYMBOLS (used externally for validation)
-SUPPORTED_CURRENCIES: frozenset[str] = frozenset({"EUR", "CHF", "JPY", "DKK", "SEK", "NOK", "GBP"})
+SUPPORTED_CURRENCIES: frozenset[str] = frozenset(
+    {"EUR", "CHF", "JPY", "DKK", "SEK", "NOK", "GBP", "HKD", "KRW"}
+)
 
 # Map currency ISO code → pair name
 CURRENCY_TO_PAIR: dict[str, str] = {
@@ -39,6 +43,8 @@ CURRENCY_TO_PAIR: dict[str, str] = {
     "SEK": "SEKUSD",
     "NOK": "NOKUSD",
     "GBP": "GBPUSD",
+    "HKD": "HKDUSD",
+    "KRW": "KRWUSD",
 }
 
 _EMPTY_SCHEMA = {"date": pl.Date, "rate": pl.Float64}
@@ -51,7 +57,7 @@ def fetch_fx_rates(
     """Fetch daily closing FX rates from yfinance.
 
     Args:
-        pairs: Subset of pair names to fetch (default: all 7).
+        pairs: Subset of pair names to fetch (default: all 9).
         years: History to fetch in years.
 
     Returns:
