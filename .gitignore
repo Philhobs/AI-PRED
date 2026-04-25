@@ -14,3 +14,6 @@ data/models/
 *.duckdb
 models/artifacts/*.pkl
 models/artifacts/**/*.pkl
+
+# Superpowers per-session memory artifacts (not source-of-truth)
+docs/superpowers/memory/
