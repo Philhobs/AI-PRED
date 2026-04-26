@@ -132,21 +132,21 @@ _SOURCES: list[tuple[str, str, str, str]] = [
     ),
     (
         "Cyber threat (NVD)",
-        str(_PROJECT_ROOT / "data/raw/cyber_threat/**/*.parquet"),
-        "published_date",
+        str(_PROJECT_ROOT / "data/raw/cyber_threat/date=*/threats.parquet"),
+        "date",
         "weekly",
     ),
     (
         "OWID energy geography",
-        str(_PROJECT_ROOT / "data/raw/energy_geo/*.parquet"),
+        str(_PROJECT_ROOT / "data/raw/energy_geo/country_energy.parquet"),
         "year",
         "quarterly",
     ),
     (
-        "FRED financial macro",
-        str(_PROJECT_ROOT / "data/raw/financials/fred/*.parquet"),
+        "yfinance market caps",
+        str(_PROJECT_ROOT / "data/raw/financials/market_caps.parquet"),
         "date",
-        "monthly",
+        "weekly",
     ),
 ]
 
@@ -162,7 +162,12 @@ def _latest_date(glob_or_path: str, date_col: str) -> date | None:
         val = result[0] if result else None
         if val is None:
             return None
-        return val if isinstance(val, date) else date.fromisoformat(str(val)[:10])
+        if isinstance(val, date):
+            return val
+        if isinstance(val, int):
+            # Annual data — interpret year as Jan 1 of that year
+            return date(val, 1, 1)
+        return date.fromisoformat(str(val)[:10])
     except Exception:
         return None
 
