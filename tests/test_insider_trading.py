@@ -254,3 +254,86 @@ def test_compute_congress_net_buy_90d():
     ])
     result = _compute_congress_net_buy_90d(congress, ticker="NVDA", as_of=_date(2024, 3, 1), window_days=90)
     assert result == pytest.approx(2.0)
+
+
+# ── Form 4 fetcher: raw XML path derivation ──────────────────────────────────
+
+def test_raw_xml_path_strips_xsl_viewer_prefix():
+    """primaryDocument paths from EDGAR like 'xslF345X06/wf-form4_xxx.xml' must
+    have the viewer prefix stripped to yield the raw XML filename."""
+    from ingestion.insider_trading_ingestion import _raw_xml_path
+    assert _raw_xml_path("xslF345X06/wf-form4_1234.xml") == "wf-form4_1234.xml"
+    assert _raw_xml_path("xslF345X05/edgardoc-345.xml") == "edgardoc-345.xml"
+
+
+def test_raw_xml_path_passthrough_when_no_xsl_prefix():
+    """A primaryDocument that's already the raw XML name is returned unchanged."""
+    from ingestion.insider_trading_ingestion import _raw_xml_path
+    assert _raw_xml_path("wf-form4_1234.xml") == "wf-form4_1234.xml"
+    assert _raw_xml_path("primary_doc.xml") == "primary_doc.xml"
+
+
+def test_raw_xml_path_does_not_strip_unrelated_prefix():
+    """A non-xsl prefixed path is left alone."""
+    from ingestion.insider_trading_ingestion import _raw_xml_path
+    assert _raw_xml_path("subdir/foo.xml") == "subdir/foo.xml"
+
+
+def test_fetch_form4_filings_skips_legacy_paper_filings():
+    """Form 4 entries without an .xml primaryDocument (legacy paper filings) are dropped."""
+    from unittest.mock import patch, MagicMock
+    from ingestion.insider_trading_ingestion import _fetch_form4_filings
+
+    fake = {
+        "filings": {
+            "recent": {
+                "form": ["4", "4", "4"],
+                "accessionNumber": ["0001-22-000001", "0001-22-000002", "0001-22-000003"],
+                "filingDate": ["2022-01-01", "2022-01-02", "2022-01-03"],
+                "primaryDocument": [
+                    "xslF345X06/wf-form4_1.xml",   # modern XML — keep
+                    "",                              # legacy paper — drop
+                    "wf-form4_3.xml",                # already raw — keep
+                ],
+            },
+            "files": [],
+        }
+    }
+    resp = MagicMock()
+    resp.raise_for_status.return_value = None
+    resp.json.return_value = fake
+    with patch("ingestion.insider_trading_ingestion.requests.get", return_value=resp):
+        result = _fetch_form4_filings(cik="0001045810", ticker="NVDA")
+
+    assert len(result) == 2
+    assert result[0]["primary_doc"] == "xslF345X06/wf-form4_1.xml"
+    assert result[1]["primary_doc"] == "wf-form4_3.xml"
+
+
+def test_fetch_form4_xml_uses_raw_xml_path():
+    """_fetch_form4_xml must request the URL with the xsl prefix stripped."""
+    from unittest.mock import patch, MagicMock
+    from ingestion.insider_trading_ingestion import _fetch_form4_xml
+
+    captured = {"url": ""}
+
+    def _capture(url, headers, timeout):
+        captured["url"] = url
+        m = MagicMock()
+        m.status_code = 200
+        m.raise_for_status.return_value = None
+        m.text = "<ownershipDocument/>"
+        return m
+
+    with patch("ingestion.insider_trading_ingestion.requests.get", side_effect=_capture):
+        _fetch_form4_xml(
+            cik="0001045810",
+            accession="000119903926000003",
+            primary_doc="xslF345X06/wf-form4_1234.xml",
+            ticker="NVDA",
+        )
+
+    # URL must NOT contain the xslF345X06/ viewer prefix
+    assert "xslF345X06" not in captured["url"]
+    # URL must include the raw XML filename
+    assert captured["url"].endswith("/wf-form4_1234.xml")

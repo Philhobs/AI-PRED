@@ -100,7 +100,10 @@ _EDGAR_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
 def _fetch_form4_filings(cik: str, ticker: str) -> list[dict]:
     """Fetch Form 4 filing accession numbers from EDGAR submissions API.
 
-    Returns list of dicts with keys: accession (no dashes), filed.
+    Returns list of dicts with keys: accession (no dashes), filed, primary_doc.
+    primary_doc is the path within the accession folder (e.g. 'wf-form4_xxx.xml'
+    or 'xslF345X06/wf-form4_xxx.xml' — the xsl prefix is stripped at fetch time).
+    Filings without an .xml primary_doc are skipped (legacy paper filings).
     """
     cik_padded = cik.lstrip("0").zfill(10)
     url = _EDGAR_SUBMISSIONS_URL.format(cik=cik_padded)
@@ -112,18 +115,26 @@ def _fetch_form4_filings(cik: str, ticker: str) -> list[dict]:
         return []
 
     data = resp.json()
-    filings = data.get("filings", {}).get("recent", {})
-    forms = filings.get("form", [])
-    accessions = filings.get("accessionNumber", [])
-    filed_dates = filings.get("filingDate", [])
 
-    result = []
-    for form, accession, filed in zip(forms, accessions, filed_dates):
-        if form == "4":
-            result.append({
+    def _collect(block: dict) -> list[dict]:
+        forms = block.get("form", [])
+        accessions = block.get("accessionNumber", [])
+        filed_dates = block.get("filingDate", [])
+        primary_docs = block.get("primaryDocument", [""] * len(forms))
+        rows = []
+        for form, accession, filed, primary_doc in zip(forms, accessions, filed_dates, primary_docs):
+            if form != "4":
+                continue
+            if not primary_doc or not primary_doc.endswith(".xml"):
+                continue   # legacy paper filing or unexpected primary_doc shape
+            rows.append({
                 "accession": accession.replace("-", ""),
                 "filed": filed,
+                "primary_doc": primary_doc,
             })
+        return rows
+
+    result: list[dict] = _collect(data.get("filings", {}).get("recent", {}))
 
     # Fetch older filings pages if present
     older = data.get("filings", {}).get("files", [])
@@ -133,32 +144,36 @@ def _fetch_form4_filings(cik: str, ticker: str) -> list[dict]:
             time.sleep(0.1)
             r2 = requests.get(older_url, headers=_HEADERS, timeout=30)
             r2.raise_for_status()
-            older_data = r2.json()
-            o_forms = older_data.get("form", [])
-            o_accessions = older_data.get("accessionNumber", [])
-            o_dates = older_data.get("filingDate", [])
-            for form, accession, filed in zip(o_forms, o_accessions, o_dates):
-                if form == "4":
-                    result.append({
-                        "accession": accession.replace("-", ""),
-                        "filed": filed,
-                    })
+            result.extend(_collect(r2.json()))
         except requests.RequestException as exc:
             _LOG.warning("Failed to fetch older submissions page for %s: %s", ticker, exc)
 
-    _LOG.info("Found %d Form 4 filings for %s", len(result), ticker)
+    _LOG.info("Found %d Form 4 (XML) filings for %s", len(result), ticker)
     return result
 
 
-def _fetch_form4_xml(cik: str, accession: str, ticker: str) -> str:
+def _raw_xml_path(primary_doc: str) -> str:
+    """Strip a leading xsl* viewer prefix to get the raw XML filename.
+
+    EDGAR's submissions JSON returns paths like 'xslF345X06/wf-form4_xxx.xml' which
+    point to the HTML-rendered viewer. The raw XML lives at the same accession
+    folder one level up: 'wf-form4_xxx.xml'.
+    """
+    if "/" in primary_doc and primary_doc.split("/", 1)[0].startswith("xsl"):
+        return primary_doc.split("/", 1)[1]
+    return primary_doc
+
+
+def _fetch_form4_xml(cik: str, accession: str, primary_doc: str, ticker: str) -> str:
     """Fetch raw Form 4 XML text for one filing. Returns empty string on failure.
 
-    Accession is the 18-digit string with no dashes.
-    Reconstructs dashed form for the filename: XXXXXXXXXX-YY-ZZZZZZ.
+    Accession is the 18-digit string with no dashes. primary_doc is the path
+    from EDGAR's submissions JSON; the xsl viewer prefix is stripped to get the
+    raw XML URL.
     """
     cik_num = cik.lstrip("0")
-    accession_dashed = f"{accession[:10]}-{accession[10:12]}-{accession[12:]}"
-    url = f"https://www.sec.gov/Archives/edgar/data/{cik_num}/{accession}/{accession_dashed}.txt"
+    raw_name = _raw_xml_path(primary_doc)
+    url = f"https://www.sec.gov/Archives/edgar/data/{cik_num}/{accession}/{raw_name}"
     try:
         resp = requests.get(url, headers=_HEADERS, timeout=30)
         if resp.status_code == 404:
@@ -202,7 +217,7 @@ def fetch_corporate_insider_trades(ticker: str) -> pl.DataFrame:
 
     for i, filing in enumerate(filings):
         time.sleep(0.1)  # SEC rate limit: 10 req/s
-        xml_text = _fetch_form4_xml(cik, filing["accession"], ticker)
+        xml_text = _fetch_form4_xml(cik, filing["accession"], filing["primary_doc"], ticker)
         if not xml_text:
             continue
         rows = _parse_form4_xml(xml_text, ticker=ticker, filed_date=filing["filed"])
