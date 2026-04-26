@@ -3,7 +3,7 @@
 Features (PHYSICAL_AI_FEATURE_COLS):
   Macro (FRED, monthly, 60-day forward-fill tolerance):
     phys_ai_capgoods_orders_level / _yoy        (NEWORDER)
-    phys_ai_pmi_level                            (NAPM)
+    phys_ai_cfnai_level                          (CFNAI — PMI substitute, see ingestion docstring)
     phys_ai_machinery_prod_level / _yoy          (IPG3331S)
     phys_ai_machinery_ppi_level / _yoy           (WPU114)
   Labor (BLS JOLTS NAICS 333, monthly, 60-day tolerance):
@@ -29,7 +29,7 @@ _LOG = logging.getLogger(__name__)
 PHYSICAL_AI_FEATURE_COLS: list[str] = [
     "phys_ai_capgoods_orders_level",
     "phys_ai_capgoods_orders_yoy",
-    "phys_ai_pmi_level",
+    "phys_ai_cfnai_level",
     "phys_ai_machinery_prod_level",
     "phys_ai_machinery_prod_yoy",
     "phys_ai_machinery_ppi_level",
@@ -53,7 +53,7 @@ PHYSICAL_AI_FEATURE_COLS: list[str] = [
 # (FRED series id) → (level column name, yoy column name | None)
 _FRED_COL_MAP: dict[str, tuple[str, Optional[str]]] = {
     "NEWORDER": ("phys_ai_capgoods_orders_level", "phys_ai_capgoods_orders_yoy"),
-    "NAPM":     ("phys_ai_pmi_level",             None),
+    "CFNAI":    ("phys_ai_cfnai_level",           None),
     "IPG3331S": ("phys_ai_machinery_prod_level",  "phys_ai_machinery_prod_yoy"),
     "WPU114":   ("phys_ai_machinery_ppi_level",   "phys_ai_machinery_ppi_yoy"),
 }

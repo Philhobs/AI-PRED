@@ -58,7 +58,7 @@ def test_physical_ai_feature_cols_exact_names():
     assert set(PHYSICAL_AI_FEATURE_COLS) == {
         "phys_ai_capgoods_orders_level",
         "phys_ai_capgoods_orders_yoy",
-        "phys_ai_pmi_level",
+        "phys_ai_cfnai_level",
         "phys_ai_machinery_prod_level",
         "phys_ai_machinery_prod_yoy",
         "phys_ai_machinery_ppi_level",
@@ -96,8 +96,8 @@ def test_join_macro_features_forward_fills_within_60d(tmp_path: Path):
     fred_dir = tmp_path / "robotics_signals"
     _write_fred_parquet(fred_dir, "NEWORDER",
         [(date(2025, 1, 1), 100.0), (date(2025, 2, 1), 105.0)])
-    _write_fred_parquet(fred_dir, "NAPM",
-        [(date(2025, 2, 1), 52.0)])
+    _write_fred_parquet(fred_dir, "CFNAI",
+        [(date(2025, 2, 1), -0.2)])
     _write_fred_parquet(fred_dir, "IPG3331S",
         [(date(2025, 2, 1), 110.0)])
     _write_fred_parquet(fred_dir, "WPU114",
@@ -123,7 +123,7 @@ def test_join_macro_features_forward_fills_within_60d(tmp_path: Path):
     assert "phys_ai_capgoods_orders_level" in out.columns
     nvda = out.filter(pl.col("ticker") == "NVDA").row(0, named=True)
     assert nvda["phys_ai_capgoods_orders_level"] == 105.0
-    assert nvda["phys_ai_pmi_level"] == 52.0
+    assert nvda["phys_ai_cfnai_level"] == -0.2
 
 
 def test_join_macro_features_null_beyond_tolerance(tmp_path: Path):
@@ -133,7 +133,7 @@ def test_join_macro_features_null_beyond_tolerance(tmp_path: Path):
     fred_dir = tmp_path / "robotics_signals"
     _write_fred_parquet(fred_dir, "NEWORDER",
         [(date(2024, 12, 1), 100.0)])  # >60d before query
-    _write_fred_parquet(fred_dir, "NAPM", [(date(2024, 12, 1), 50.0)])
+    _write_fred_parquet(fred_dir, "CFNAI", [(date(2024, 12, 1), -0.1)])
     _write_fred_parquet(fred_dir, "IPG3331S", [(date(2024, 12, 1), 100.0)])
     _write_fred_parquet(fred_dir, "WPU114", [(date(2024, 12, 1), 250.0)])
 

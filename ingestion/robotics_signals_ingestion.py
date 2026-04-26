@@ -3,7 +3,9 @@
 Fetches 4 FRED series tracking the macro demand backdrop for industrial
 automation and physical-AI growth:
   NEWORDER  — Manufacturers' New Orders: Nondefense Capital Goods Ex Aircraft
-  NAPM      — ISM Manufacturing PMI (headline)
+  CFNAI     — Chicago Fed National Activity Index (PMI substitute — ISM removed
+              from FRED in June 2016, so we use CFNAI as a same-shape monthly
+              leading indicator: mean-zero, std=1, sub-zero = below-trend growth)
   IPG3331S  — Industrial Production: Industrial Machinery
   WPU114    — PPI: Industrial Machinery
 
@@ -30,8 +32,7 @@ import requests
 _LOG = logging.getLogger(__name__)
 
 _FRED_BASE = "https://api.stlouisfed.org/fred/series/observations"
-_FRED_SERIES: tuple[str, ...] = ("NEWORDER", "NAPM", "IPG3331S", "WPU114")
-_NAPM_FALLBACK = "USAPMI"  # if NAPM is unreachable, try this alternative
+_FRED_SERIES: tuple[str, ...] = ("NEWORDER", "CFNAI", "IPG3331S", "WPU114")
 
 _SCHEMA = {"date": pl.Date, "value": pl.Float64}
 _EMPTY_DF = pl.DataFrame(schema=_SCHEMA)
@@ -92,14 +93,10 @@ def save_robotics_signals(out_dir: Path, series_dfs: dict[str, pl.DataFrame]) ->
 
 
 def fetch_all() -> dict[str, pl.DataFrame]:
-    """Fetch all 4 FRED series (with NAPM fallback to USAPMI). Sleep 1s between calls."""
+    """Fetch all 4 FRED series. Sleep 1s between calls."""
     out: dict[str, pl.DataFrame] = {}
     for series_id in _FRED_SERIES:
-        df = fetch_fred_series(series_id)
-        if df.is_empty() and series_id == "NAPM":
-            _LOG.warning("[FRED] NAPM unreachable — trying fallback %s", _NAPM_FALLBACK)
-            df = fetch_fred_series(_NAPM_FALLBACK)
-        out[series_id] = df
+        out[series_id] = fetch_fred_series(series_id)
         time.sleep(1)
     return out
 

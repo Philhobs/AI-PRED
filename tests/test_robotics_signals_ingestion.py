@@ -19,7 +19,7 @@ def _mock_fred_response(observations: list[dict]) -> MagicMock:
 
 def test_fred_series_constant_has_four_entries():
     from ingestion.robotics_signals_ingestion import _FRED_SERIES
-    assert set(_FRED_SERIES) == {"NEWORDER", "NAPM", "IPG3331S", "WPU114"}
+    assert set(_FRED_SERIES) == {"NEWORDER", "CFNAI", "IPG3331S", "WPU114"}
 
 
 def test_fetch_fred_series_schema():
@@ -83,9 +83,9 @@ def test_save_robotics_signals_writes_parquet(tmp_path: Path):
             "date": [date(2025, 1, 1)],
             "value": [100.0],
         }, schema={"date": pl.Date, "value": pl.Float64}),
-        "NAPM": pl.DataFrame({
+        "CFNAI": pl.DataFrame({
             "date": [date(2025, 1, 1)],
-            "value": [50.0],
+            "value": [-0.2],
         }, schema={"date": pl.Date, "value": pl.Float64}),
     }
 
@@ -109,25 +109,19 @@ def test_save_robotics_signals_skips_empty(tmp_path: Path):
     assert not (tmp_path / "NEWORDER.parquet").exists()
 
 
-def test_fetch_all_uses_napm_fallback_when_napm_empty():
-    """When NAPM returns empty, fetch_all retries with USAPMI and stores the result under 'NAPM' key."""
-    from ingestion.robotics_signals_ingestion import fetch_all, _NAPM_FALLBACK
+def test_fetch_all_invokes_each_series_once():
+    """fetch_all calls fetch_fred_series exactly once per id in _FRED_SERIES."""
+    from ingestion.robotics_signals_ingestion import fetch_all, _FRED_SERIES
 
-    napm_empty = pl.DataFrame(schema={"date": pl.Date, "value": pl.Float64})
-    usapmi_data = pl.DataFrame(
-        {"date": [date(2025, 1, 1)], "value": [55.0]},
-        schema={"date": pl.Date, "value": pl.Float64},
-    )
     populated = pl.DataFrame(
-        {"date": [date(2025, 1, 1)], "value": [100.0]},
+        {"date": [date(2025, 1, 1)], "value": [1.0]},
         schema={"date": pl.Date, "value": pl.Float64},
     )
+
+    calls: list[str] = []
 
     def fake_fetch(series_id, observation_start="2010-01-01"):
-        if series_id == "NAPM":
-            return napm_empty
-        if series_id == _NAPM_FALLBACK:
-            return usapmi_data
+        calls.append(series_id)
         return populated
 
     with patch("ingestion.robotics_signals_ingestion.fetch_fred_series",
@@ -135,32 +129,5 @@ def test_fetch_all_uses_napm_fallback_when_napm_empty():
          patch("ingestion.robotics_signals_ingestion.time.sleep"):
         out = fetch_all()
 
-    assert "NAPM" in out
-    assert _NAPM_FALLBACK not in out
-    # The NAPM key must hold the USAPMI fallback's data
-    assert out["NAPM"]["value"][0] == 55.0
-
-
-def test_fetch_all_does_not_use_fallback_for_other_empty_series():
-    """If a non-NAPM series returns empty, no fallback is attempted."""
-    from ingestion.robotics_signals_ingestion import fetch_all, _NAPM_FALLBACK
-
-    empty = pl.DataFrame(schema={"date": pl.Date, "value": pl.Float64})
-
-    calls: list[str] = []
-
-    def fake_fetch(series_id, observation_start="2010-01-01"):
-        calls.append(series_id)
-        return empty  # all return empty
-
-    with patch("ingestion.robotics_signals_ingestion.fetch_fred_series",
-               side_effect=fake_fetch), \
-         patch("ingestion.robotics_signals_ingestion.time.sleep"):
-        fetch_all()
-
-    # USAPMI must be called exactly once (NAPM fallback)
-    # No other series should trigger USAPMI; in particular IPG3331S returning empty must not call USAPMI
-    assert calls.count(_NAPM_FALLBACK) == 1
-    assert calls.count("NEWORDER") == 1
-    assert calls.count("IPG3331S") == 1
-    assert calls.count("WPU114") == 1
+    assert sorted(calls) == sorted(_FRED_SERIES)
+    assert set(out) == set(_FRED_SERIES)

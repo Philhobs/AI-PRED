@@ -25,11 +25,11 @@ No assignee whitelist on patents — capture industry-wide growth (a Waymo or Sk
 | Series ID | Description | Cadence | Pub lag |
 |---|---|---|---|
 | `NEWORDER` | Manufacturers' New Orders: Nondefense Capital Goods Excluding Aircraft | Monthly | ~5 weeks |
-| `NAPM` | ISM Manufacturing PMI (headline) | Monthly | ~1st of month |
+| `CFNAI` | Chicago Fed National Activity Index (PMI substitute — ISM removed from FRED in 2016) | Monthly | ~25th of following month |
 | `IPG3331S` | Industrial Production: Industrial Machinery | Monthly | ~5 weeks |
 | `WPU114` | PPI: Industrial Machinery | Monthly | ~mid-month |
 
-**Fallback for `NAPM`:** if not reachable, try `USAPMI`. If neither, log warning and ship 3 FRED series; tests adjust to 108 features.
+**No fallback chain.** ISM removed all PMI series (NAPM, USAPMI, NAPMPMI, etc.) from FRED in June 2016. CFNAI is used as the PMI substitute — same-shape monthly leading indicator (mean-zero, std=1, sub-zero = below-trend US growth).
 
 **FRED API key:** required for every request — without it FRED returns HTTP 400. Register free at https://fred.stlouisfed.org/docs/api/api_key.html and set `FRED_API_KEY` in `.env`. The module fail-softs (writes empty parquet, logs warning) when the key is missing.
 
@@ -75,7 +75,7 @@ Each new file has one responsibility:
 |---:|---|---|---|
 | 1 | `phys_ai_capgoods_orders_level` | FRED NEWORDER | Level (USD) |
 | 2 | `phys_ai_capgoods_orders_yoy` | FRED NEWORDER | yoy % change |
-| 3 | `phys_ai_pmi_level` | FRED NAPM | Level (0–100 index) |
+| 3 | `phys_ai_cfnai_level` | FRED CFNAI | Level (mean-0 / std-1 index) |
 | 4 | `phys_ai_machinery_prod_level` | FRED IPG3331S | Level (index) |
 | 5 | `phys_ai_machinery_prod_yoy` | FRED IPG3331S | yoy % change |
 | 6 | `phys_ai_machinery_ppi_level` | FRED WPU114 | Level (index) |
@@ -96,7 +96,7 @@ Each new file has one responsibility:
 | 21 | `phys_ai_patents_vision_yoy` | USPTO G06V | yoy % change |
 
 **Notes on choices:**
-- PMI gets level only — yoy of a 0–100 index is noise.
+- CFNAI gets level only — yoy of a mean-zero index goes wild near zero.
 - All other macro/labor signals get level + yoy because absolute level (current activity) and rate of change (momentum) are independently informative.
 - Patents get count + yoy because filing-count level represents industry size (NVDA cares about the slope; small-cap robotics players care about absolute volume of competitive activity).
 
