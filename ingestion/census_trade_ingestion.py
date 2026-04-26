@@ -26,8 +26,8 @@ import requests
 
 _LOG = logging.getLogger(__name__)
 
-_IMPORTS_URL = "https://api.census.gov/data/timeseries/intltrade/imports"
-_EXPORTS_URL = "https://api.census.gov/data/timeseries/intltrade/exports"
+_IMPORTS_URL = "https://api.census.gov/data/timeseries/intltrade/imports/hs"
+_EXPORTS_URL = "https://api.census.gov/data/timeseries/intltrade/exports/hs"
 
 _SCHEMA = {
     "date": pl.Date,
@@ -80,15 +80,18 @@ def _fetch_query(
     """Fetch 12-month lookback for one (direction, hs_code, partner_code) combination."""
     url = _IMPORTS_URL if direction == "import" else _EXPORTS_URL
     value_field = "GEN_VAL_MO" if direction == "import" else "ALL_VAL_MO"
+    # Census uses I_COMMODITY for imports and E_COMMODITY for exports — wrong field
+    # name returns an error response (a dict) that crashes the parser below.
+    commodity_field = "I_COMMODITY" if direction == "import" else "E_COMMODITY"
 
     from_str = f"{run_date.year - 1}-{run_date.month:02d}"
     to_str = f"{run_date.year}-{run_date.month:02d}"
 
     # Build query string manually — requests would percent-encode '+' in the time parameter
     query = (
-        f"get={value_field},E_COMMODITY"
+        f"get={value_field},{commodity_field}"
         f"&COMM_LVL=HS4"
-        f"&E_COMMODITY={hs_code}"
+        f"&{commodity_field}={hs_code}"
         f"&time=from+{from_str}+to+{to_str}"
     )
     if partner_code != "ALL":
@@ -96,11 +99,22 @@ def _fetch_query(
     if api_key:
         query += f"&key={api_key}"
 
-    resp = requests.get(f"{url}?{query}", timeout=30)
-    resp.raise_for_status()
-    data = resp.json()
+    try:
+        resp = requests.get(f"{url}?{query}", timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:  # noqa: BLE001 — fail-soft per project convention
+        _LOG.warning(
+            "Census: fetch failed for %s %s %s (%s) — skipping", direction, hs_code, partner_code, exc
+        )
+        return []
 
-    if not data or len(data) < 2:
+    # Census returns a list-of-lists on success or a dict ({"error": ...}) on a bad query.
+    if not isinstance(data, list) or len(data) < 2:
+        _LOG.warning(
+            "Census: unexpected response shape %s for %s %s %s — skipping",
+            type(data).__name__, direction, hs_code, partner_code,
+        )
         return []
 
     headers = data[0]

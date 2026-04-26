@@ -7,11 +7,15 @@ from unittest.mock import patch, MagicMock
 from ingestion.census_trade_ingestion import _SCHEMA, _QUERIES
 
 
-def _make_census_response(rows: list[list], value_field: str = "GEN_VAL_MO") -> MagicMock:
+def _make_census_response(
+    rows: list[list],
+    value_field: str = "GEN_VAL_MO",
+    commodity_field: str = "I_COMMODITY",
+) -> MagicMock:
     mock = MagicMock()
     mock.raise_for_status.return_value = None
     mock.json.return_value = [
-        [value_field, "E_COMMODITY", "time"],
+        [value_field, commodity_field, "time"],
         *rows,
     ]
     return mock
@@ -25,8 +29,8 @@ def test_schema_correct():
     """fetch_trade returns a DataFrame matching _SCHEMA."""
     from ingestion.census_trade_ingestion import fetch_trade
 
-    import_resp = _make_census_response([_IMPORT_ROW], "GEN_VAL_MO")
-    export_resp = _make_census_response([_EXPORT_ROW], "ALL_VAL_MO")
+    import_resp = _make_census_response([_IMPORT_ROW], "GEN_VAL_MO", "I_COMMODITY")
+    export_resp = _make_census_response([_EXPORT_ROW], "ALL_VAL_MO", "E_COMMODITY")
     # 10 queries: 6 imports (indices 0-5), 4 exports (indices 6-9)
     responses = [import_resp] * 6 + [export_resp] * 4
 
@@ -42,8 +46,8 @@ def test_direction_hs_partner_stored_correctly():
     """direction, hs_code, and partner_code are stored correctly."""
     from ingestion.census_trade_ingestion import fetch_trade
 
-    import_resp = _make_census_response([["5000000.0", "8541", "2024-03"]], "GEN_VAL_MO")
-    export_resp = _make_census_response([["3000000.0", "8541", "2024-03"]], "ALL_VAL_MO")
+    import_resp = _make_census_response([["5000000.0", "8541", "2024-03"]], "GEN_VAL_MO", "I_COMMODITY")
+    export_resp = _make_census_response([["3000000.0", "8541", "2024-03"]], "ALL_VAL_MO", "E_COMMODITY")
     responses = [import_resp] * 6 + [export_resp] * 4
 
     with patch("ingestion.census_trade_ingestion.requests.get", side_effect=responses):
@@ -77,7 +81,7 @@ def test_empty_response_no_file_written(tmp_path):
 
     import_empty = MagicMock()
     import_empty.raise_for_status.return_value = None
-    import_empty.json.return_value = [["GEN_VAL_MO", "E_COMMODITY", "time"]]  # header only
+    import_empty.json.return_value = [["GEN_VAL_MO", "I_COMMODITY", "time"]]  # header only
 
     export_empty = MagicMock()
     export_empty.raise_for_status.return_value = None
@@ -96,8 +100,8 @@ def test_sleep_between_queries():
     """time.sleep(1.0) is called between queries — not after the last one."""
     from ingestion.census_trade_ingestion import fetch_trade, _QUERIES
 
-    import_resp = _make_census_response([_IMPORT_ROW], "GEN_VAL_MO")
-    export_resp = _make_census_response([_EXPORT_ROW], "ALL_VAL_MO")
+    import_resp = _make_census_response([_IMPORT_ROW], "GEN_VAL_MO", "I_COMMODITY")
+    export_resp = _make_census_response([_EXPORT_ROW], "ALL_VAL_MO", "E_COMMODITY")
     responses = [import_resp] * 6 + [export_resp] * 4
 
     with patch("ingestion.census_trade_ingestion.requests.get", side_effect=responses):
@@ -106,3 +110,73 @@ def test_sleep_between_queries():
 
     assert mock_sleep.call_count == len(_QUERIES) - 1
     mock_sleep.assert_called_with(1.0)
+
+
+def test_import_query_uses_i_commodity_field():
+    """Import queries must use I_COMMODITY (not E_COMMODITY) — Census API requires direction-correct field."""
+    from ingestion.census_trade_ingestion import _fetch_query
+
+    captured_url = {"url": ""}
+
+    def _capture(url, timeout):
+        captured_url["url"] = url
+        m = MagicMock()
+        m.raise_for_status.return_value = None
+        m.json.return_value = [["GEN_VAL_MO", "I_COMMODITY", "time"]]  # header only
+        return m
+
+    with patch("ingestion.census_trade_ingestion.requests.get", side_effect=_capture):
+        _fetch_query("import", "8541", "ALL", datetime.date(2024, 4, 1), api_key="")
+
+    assert "I_COMMODITY=8541" in captured_url["url"]
+    assert "E_COMMODITY" not in captured_url["url"]
+
+
+def test_export_query_uses_e_commodity_field():
+    """Export queries continue to use E_COMMODITY."""
+    from ingestion.census_trade_ingestion import _fetch_query
+
+    captured_url = {"url": ""}
+
+    def _capture(url, timeout):
+        captured_url["url"] = url
+        m = MagicMock()
+        m.raise_for_status.return_value = None
+        m.json.return_value = [["ALL_VAL_MO", "E_COMMODITY", "time"]]  # header only
+        return m
+
+    with patch("ingestion.census_trade_ingestion.requests.get", side_effect=_capture):
+        _fetch_query("export", "8541", "ALL", datetime.date(2024, 4, 1), api_key="")
+
+    assert "E_COMMODITY=8541" in captured_url["url"]
+    assert "I_COMMODITY" not in captured_url["url"]
+
+
+def test_fetch_query_fail_soft_on_http_error(caplog):
+    """An exception on requests.get / json parse returns [] and logs a warning, no raise."""
+    import logging
+    from ingestion.census_trade_ingestion import _fetch_query
+
+    with patch("ingestion.census_trade_ingestion.requests.get") as mock_get:
+        mock_get.side_effect = Exception("503 Service Unavailable")
+        with caplog.at_level(logging.WARNING, logger="ingestion.census_trade_ingestion"):
+            result = _fetch_query("import", "8541", "ALL", datetime.date(2024, 4, 1), api_key="")
+
+    assert result == []
+    assert any("fetch failed" in rec.message for rec in caplog.records)
+
+
+def test_fetch_query_fail_soft_on_dict_response(caplog):
+    """A dict-shaped response (Census error shape) returns [] without crashing."""
+    import logging
+    from ingestion.census_trade_ingestion import _fetch_query
+
+    err_resp = MagicMock()
+    err_resp.raise_for_status.return_value = None
+    err_resp.json.return_value = {"error": "invalid query"}  # dict, not list
+    with patch("ingestion.census_trade_ingestion.requests.get", return_value=err_resp):
+        with caplog.at_level(logging.WARNING, logger="ingestion.census_trade_ingestion"):
+            result = _fetch_query("import", "8541", "ALL", datetime.date(2024, 4, 1), api_key="")
+
+    assert result == []
+    assert any("unexpected response shape" in rec.message for rec in caplog.records)
