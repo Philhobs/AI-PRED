@@ -1,4 +1,4 @@
-"""Central registry of all 149 AI infrastructure + robotics + cybersecurity tickers.
+"""Central registry of all 165 AI infrastructure + robotics + cyber + SaaS tickers.
 
 Single source of truth for layer assignments, exchange metadata, and currency.
 CIK_MAP stays in edgar_fundamentals_ingestion.py (backward-compatible).
@@ -31,7 +31,7 @@ TICKERS_INFO: list[TickerInfo] = [
     TickerInfo("SAP.DE",    "cloud",          "DE", "EUR", "DE"),
     TickerInfo("CAP.PA",    "cloud",          "PA", "EUR", "FR"),
     TickerInfo("OVH.PA",    "cloud",          "PA", "EUR", "FR"),
-    # ── Layer 2: AI Compute / Chips (13) ──────────────────────────────────────
+    # ── Layer 2: AI Compute / Chips (15) ──────────────────────────────────────
     TickerInfo("NVDA",      "compute",        "US", "USD", "US"),
     TickerInfo("AMD",       "compute",        "US", "USD", "US"),
     TickerInfo("AVGO",      "compute",        "US", "USD", "US"),
@@ -45,6 +45,8 @@ TICKERS_INFO: list[TickerInfo] = [
     TickerInfo("CDNS",      "compute",        "US", "USD", "US"),
     TickerInfo("IFX.DE",    "compute",        "DE", "EUR", "DE"),
     TickerInfo("STM",       "compute",        "US", "USD", "NL"),
+    TickerInfo("000660.KS", "compute",        "KS", "KRW", "KR"),  # SK Hynix — HBM3/HBM4
+    TickerInfo("005930.KS", "compute",        "KS", "KRW", "KR"),  # Samsung — HBM + foundry
     # ── Layer 3: Semiconductor Equipment & Materials (15) ─────────────────────
     TickerInfo("AMAT",      "semi_equipment", "US", "USD", "US"),
     TickerInfo("LRCX",      "semi_equipment", "US", "USD", "US"),
@@ -92,8 +94,9 @@ TICKERS_INFO: list[TickerInfo] = [
     TickerInfo("APLD",      "datacenter",     "US", "USD", "US"),
     TickerInfo("9432.T",    "datacenter",     "T",  "JPY", "JP"),
     TickerInfo("CLNX.MC",   "datacenter",     "MC", "EUR", "ES"),
-    # ── Layer 7: Power / Energy / Nuclear (19) ────────────────────────────────
+    # ── Layer 7: Power / Energy / Nuclear (20) ────────────────────────────────
     TickerInfo("CEG",       "power",          "US", "USD", "US"),
+    TickerInfo("CCJ",       "power",          "US", "USD", "CA"),  # Cameco — uranium fuel cycle
     TickerInfo("VST",       "power",          "US", "USD", "US"),
     TickerInfo("NRG",       "power",          "US", "USD", "US"),
     TickerInfo("TLN",       "power",          "US", "USD", "US"),
@@ -112,8 +115,9 @@ TICKERS_INFO: list[TickerInfo] = [
     TickerInfo("ENEL.MI",   "power",          "MI", "EUR", "IT"),
     TickerInfo("ORSTED.CO", "power",          "CO", "DKK", "DK"),
     TickerInfo("ENGI.PA",   "power",          "PA", "EUR", "FR"),
-    # ── Layer 8: Cooling / Facilities / Backup Power (10) ─────────────────────
+    # ── Layer 8: Cooling / Facilities / Backup Power (11) ─────────────────────
     TickerInfo("VRT",       "cooling",        "US", "USD", "US"),
+    TickerInfo("ETN",       "cooling",        "US", "USD", "IE"),  # Eaton — DC electrical equipment
     TickerInfo("NVENT",     "cooling",        "US", "USD", "IE"),
     TickerInfo("JCI",       "cooling",        "US", "USD", "IE"),
     TickerInfo("TT",        "cooling",        "US", "USD", "IE"),
@@ -169,12 +173,13 @@ TICKERS_INFO: list[TickerInfo] = [
     TickerInfo("MCHP",      "robotics_mcu_chips",        "US", "USD", "US"),
     TickerInfo("ADI",       "robotics_mcu_chips",        "US", "USD", "US"),
     TickerInfo("6723.T",    "robotics_mcu_chips",        "T",  "JPY", "JP"),
-    # ── Layer 14: AI Cybersecurity — Pure Plays (5) ───────────────────────────────
+    # ── Layer 14: AI Cybersecurity — Pure Plays (6) ───────────────────────────────
     TickerInfo("CRWD",   "cyber_pureplay", "US", "USD", "US"),
     TickerInfo("ZS",     "cyber_pureplay", "US", "USD", "US"),
     TickerInfo("S",      "cyber_pureplay", "US", "USD", "US"),
     TickerInfo("DARK.L", "cyber_pureplay", "L",  "GBP", "GB"),
     TickerInfo("VRNS",   "cyber_pureplay", "US", "USD", "US"),
+    TickerInfo("NET",    "cyber_pureplay", "US", "USD", "US"),  # Cloudflare — edge security + AI Workers
     # ── Layer 15: AI Cybersecurity — Platform Vendors (9) ─────────────────────────
     TickerInfo("PANW",   "cyber_platform", "US", "USD", "US"),
     TickerInfo("FTNT",   "cyber_platform", "US", "USD", "US"),
@@ -185,6 +190,18 @@ TICKERS_INFO: list[TickerInfo] = [
     TickerInfo("OKTA",   "cyber_platform", "US", "USD", "US"),
     TickerInfo("AKAM",   "cyber_platform", "US", "USD", "US"),
     TickerInfo("RPD",    "cyber_platform", "US", "USD", "US"),
+    # ── Layer 16: Enterprise SaaS / Agentic Software (11) ─────────────────────────
+    TickerInfo("PLTR",   "enterprise_saas", "US", "USD", "US"),  # Palantir — govt + commercial AI OS
+    TickerInfo("NOW",    "enterprise_saas", "US", "USD", "US"),  # ServiceNow
+    TickerInfo("CRM",    "enterprise_saas", "US", "USD", "US"),  # Salesforce — Agentforce
+    TickerInfo("ADBE",   "enterprise_saas", "US", "USD", "US"),  # Adobe
+    TickerInfo("INTU",   "enterprise_saas", "US", "USD", "US"),  # Intuit
+    TickerInfo("DDOG",   "enterprise_saas", "US", "USD", "US"),  # Datadog
+    TickerInfo("SNOW",   "enterprise_saas", "US", "USD", "US"),  # Snowflake — Cortex AI
+    TickerInfo("GTLB",   "enterprise_saas", "US", "USD", "US"),  # GitLab — code intelligence
+    TickerInfo("TEAM",   "enterprise_saas", "US", "USD", "AU"),  # Atlassian
+    TickerInfo("PATH",   "enterprise_saas", "US", "USD", "US"),  # UiPath — RPA → agents
+    TickerInfo("MNDY",   "enterprise_saas", "US", "USD", "IL"),  # Monday.com
 ]
 
 # ── Layer metadata ──────────────────────────────────────────────────────────
@@ -195,6 +212,7 @@ LAYER_IDS: dict[str, int] = {
     "grid": 9, "metals": 10,
     "robotics_industrial": 11, "robotics_medical_humanoid": 12, "robotics_mcu_chips": 13,
     "cyber_pureplay": 14, "cyber_platform": 15,
+    "enterprise_saas": 16,
 }
 
 LAYER_LABELS: dict[str, str] = {
@@ -213,6 +231,7 @@ LAYER_LABELS: dict[str, str] = {
     "robotics_mcu_chips":          "Robotics — MCU & Sensor Chips",
     "cyber_pureplay":              "AI Cybersecurity — Pure Plays",
     "cyber_platform":              "AI Cybersecurity — Platform Vendors",
+    "enterprise_saas":             "Enterprise SaaS / Agentic Software",
 }
 
 # ── Generated lookups (single source of truth: TICKERS_INFO) ───────────────

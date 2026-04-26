@@ -5,8 +5,8 @@ def test_ticker_count():
     from ingestion.ticker_registry import TICKERS, TICKER_LAYERS
     # 141 + 8 new robotics-pillar tickers (EMR, TSLA, 1683.HK, 005380.KS,
     # TXN, MCHP, 6723.T, ADI) = 149.
-    assert len(TICKERS) == 149
-    assert len(TICKER_LAYERS) == 149
+    assert len(TICKERS) == 165
+    assert len(TICKER_LAYERS) == 165
 
 
 def test_all_layers_present():
@@ -35,15 +35,19 @@ def test_layers_count_matches_layer_ids():
 
 
 def test_layers_order():
-    from ingestion.ticker_registry import layers
+    """layers() is sorted by LAYER_IDS value ascending — name-based assertions
+    are robust to future layer additions/reorderings."""
+    from ingestion.ticker_registry import layers, LAYER_IDS
     result = layers()
+    # cloud is always layer 1
     assert result[0] == "cloud"
-    # robotics pillar (ids 11/12/13) comes before cyber pillar (14/15)
-    assert result[-5] == "robotics_industrial"
-    assert result[-4] == "robotics_medical_humanoid"
-    assert result[-3] == "robotics_mcu_chips"
-    assert result[-2] == "cyber_pureplay"
-    assert result[-1] == "cyber_platform"
+    # The id ordering must be strictly ascending — i.e. result is sorted by LAYER_IDS
+    assert result == sorted(LAYER_IDS, key=lambda la: LAYER_IDS[la])
+    # The robotics pillar (11/12/13) precedes the cyber pillar (14/15)
+    assert result.index("robotics_industrial") < result.index("cyber_pureplay")
+    assert result.index("robotics_mcu_chips") < result.index("cyber_pureplay")
+    # cyber pillar precedes enterprise_saas (16)
+    assert result.index("cyber_platform") < result.index("enterprise_saas")
 
 
 def test_cyber_pureplay_layer_populated():
@@ -51,12 +55,9 @@ def test_cyber_pureplay_layer_populated():
     assert "cyber_pureplay" in LAYER_IDS
     assert LAYER_IDS["cyber_pureplay"] == 14   # was 12, shifted by robotics split
     tickers = tickers_in_layer("cyber_pureplay")
-    assert len(tickers) == 5
-    assert "CRWD" in tickers
-    assert "ZS" in tickers
-    assert "S" in tickers
-    assert "DARK.L" in tickers
-    assert "VRNS" in tickers
+    assert len(tickers) == 6   # +NET (Cloudflare)
+    for expected in ["CRWD", "ZS", "S", "DARK.L", "VRNS", "NET"]:
+        assert expected in tickers, f"{expected} missing from cyber_pureplay"
 
 
 def test_cyber_platform_layer_populated():
@@ -137,9 +138,9 @@ def test_robotics_mcu_chips_layer_populated():
 
 def test_non_usd_tickers():
     from ingestion.ticker_registry import non_usd_tickers, TICKER_CURRENCY
-    # Was 37; +1683.HK (HKD) +005380.KS (KRW) +6723.T (JPY) = 40
+    # 40 + 000660.KS + 005930.KS = 42
     result = non_usd_tickers()
-    assert len(result) == 40
+    assert len(result) == 42
     for t in result:
         assert TICKER_CURRENCY[t] != "USD", f"{t} is USD but in non_usd_tickers()"
     assert "NVDA" not in result
@@ -148,6 +149,44 @@ def test_non_usd_tickers():
     assert "1683.HK" in result
     assert "005380.KS" in result
     assert "6723.T" in result
+    assert "000660.KS" in result   # SK Hynix
+    assert "005930.KS" in result   # Samsung
+
+
+def test_enterprise_saas_layer_populated():
+    from ingestion.ticker_registry import tickers_in_layer, LAYER_IDS
+    assert "enterprise_saas" in LAYER_IDS
+    assert LAYER_IDS["enterprise_saas"] == 16
+    saas = tickers_in_layer("enterprise_saas")
+    assert len(saas) == 11
+    expected = {"PLTR", "NOW", "CRM", "ADBE", "INTU", "DDOG", "SNOW",
+                "GTLB", "TEAM", "PATH", "MNDY"}
+    assert set(saas) == expected
+
+
+def test_compute_layer_includes_hbm_korea():
+    """SK Hynix + Samsung joined the compute layer for HBM exposure."""
+    from ingestion.ticker_registry import tickers_in_layer
+    compute = tickers_in_layer("compute")
+    assert "000660.KS" in compute
+    assert "005930.KS" in compute
+    assert len(compute) == 15   # was 13, +2
+
+
+def test_power_layer_includes_cameco():
+    """CCJ joins the power layer to complete the nuclear fuel-cycle thesis."""
+    from ingestion.ticker_registry import tickers_in_layer
+    power = tickers_in_layer("power")
+    assert "CCJ" in power
+    assert len(power) == 20   # was 19, +1
+
+
+def test_cooling_layer_includes_eaton():
+    """ETN joins the cooling layer (DC electrical equipment, same tier as VRT/SU.PA)."""
+    from ingestion.ticker_registry import tickers_in_layer
+    cooling = tickers_in_layer("cooling")
+    assert "ETN" in cooling
+    assert len(cooling) == 11   # was 10, +1
 
 
 def test_pending_ipo_watchlist_structure():
