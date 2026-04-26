@@ -152,6 +152,8 @@ def ingest_usajobs(date_str: str, output_dir: Path) -> None:
 
 if __name__ == "__main__":
     import sys
+    from dotenv import load_dotenv
+    load_dotenv()
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
     ingest_usajobs(
         datetime.date.today().isoformat(),

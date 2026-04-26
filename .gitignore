@@ -12,8 +12,7 @@ data/features/
 data/models/
 *.parquet
 *.duckdb
-models/artifacts/*.pkl
-models/artifacts/**/*.pkl
+models/artifacts/
 
 # Superpowers per-session memory artifacts (not source-of-truth)
 docs/superpowers/memory/

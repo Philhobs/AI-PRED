@@ -105,6 +105,8 @@ def fetch_all() -> dict[str, pl.DataFrame]:
 
 
 if __name__ == "__main__":
+    from dotenv import load_dotenv
+    load_dotenv()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     _ROOT = Path(__file__).parent.parent
     out_dir = _ROOT / "data" / "raw" / "robotics_signals"

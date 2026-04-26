@@ -135,6 +135,8 @@ def ingest_sam_gov(
 
 
 if __name__ == "__main__":
+    from dotenv import load_dotenv
+    load_dotenv()
     logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser(description="Ingest SAM.gov contract awards")
     parser.add_argument(
