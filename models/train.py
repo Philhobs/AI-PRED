@@ -104,19 +104,20 @@ SUPPLY_CHAIN_FEATURE_COLS = [
     "peer_eps_surprise_mean",
 ]
 FX_FEATURE_COLS = ["fx_adjusted_return_20d"]
+# Total feature count is asserted in tests/test_train.py (test_feature_cols_includes_*).
 FEATURE_COLS = (
     PRICE_FEATURE_COLS + FUND_FEATURE_COLS + INSIDER_FEATURE_COLS
     + SENTIMENT_FEATURE_COLS + SHORT_INTEREST_FEATURE_COLS
     + EARNINGS_FEATURE_COLS + GRAPH_FEATURE_COLS
     + OWNERSHIP_FEATURE_COLS + ENERGY_FEATURE_COLS
     + SUPPLY_CHAIN_FEATURE_COLS + FX_FEATURE_COLS
-    + CYBER_THREAT_FEATURE_COLS  # 53 → 60 features total
-    + OPTIONS_FEATURE_COLS       # 60 → 66 features total
-    + GOV_BEHAVIORAL_FEATURE_COLS  # 66 → 72 features total
-    + USPTO_PATENT_FEATURE_COLS    # 72 → 78 features total
-    + LABOR_FEATURE_COLS           # 78 → 82 features total
-    + CENSUS_TRADE_FEATURE_COLS    # 82 → 88 features total
-    + PHYSICAL_AI_FEATURE_COLS     # 88 → 109 features total
+    + CYBER_THREAT_FEATURE_COLS
+    + OPTIONS_FEATURE_COLS
+    + GOV_BEHAVIORAL_FEATURE_COLS
+    + USPTO_PATENT_FEATURE_COLS
+    + LABOR_FEATURE_COLS
+    + CENSUS_TRADE_FEATURE_COLS
+    + PHYSICAL_AI_FEATURE_COLS
 )
 
 # ── Horizon registry ──────────────────────────────────────────────────────────

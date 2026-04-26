@@ -742,3 +742,41 @@ def test_physical_ai_cols_in_long_tier():
     long_cols = set(TIER_FEATURE_COLS["long"])
     for col in PHYSICAL_AI_FEATURE_COLS:
         assert col in long_cols, f"{col} missing from long tier"
+
+
+def test_train_and_inference_import_same_join_functions():
+    """
+    Regression guard against train/inference drift.
+
+    Every `join_*_features` function imported by models/train.py must also be
+    imported by models/inference.py (and vice versa). When a new feature group
+    is added, both files must be wired — this test catches the case where one
+    side is forgotten (e.g. inference missing the call after a training-side
+    feature add, which would silently train on N features and infer on N-k).
+    """
+    import ast
+    import pathlib
+
+    repo_root = pathlib.Path(__file__).parent.parent
+
+    def _collect_join_imports(module_path: pathlib.Path) -> set[str]:
+        tree = ast.parse(module_path.read_text())
+        names: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("processing."):
+                for alias in node.names:
+                    if alias.name.startswith("join_"):
+                        names.add(alias.name)
+        return names
+
+    train_joins = _collect_join_imports(repo_root / "models" / "train.py")
+    inference_joins = _collect_join_imports(repo_root / "models" / "inference.py")
+
+    missing_in_inference = train_joins - inference_joins
+    missing_in_train = inference_joins - train_joins
+    assert not missing_in_inference, (
+        f"Inference missing join functions used by train: {sorted(missing_in_inference)}"
+    )
+    assert not missing_in_train, (
+        f"Train missing join functions used by inference: {sorted(missing_in_train)}"
+    )

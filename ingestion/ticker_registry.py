@@ -6,6 +6,7 @@ CIK_MAP stays in edgar_fundamentals_ingestion.py (backward-compatible).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TypedDict
 
 
 @dataclass(frozen=True)
@@ -225,9 +226,17 @@ TICKERS:         list[str]       = sorted(t.symbol for t in TICKERS_INFO)
 # Hyperscalers are the demand root — used for graph hop-distance feature.
 HYPERSCALERS: frozenset[str] = frozenset({"MSFT", "AMZN", "GOOGL", "META"})
 
+class PendingIPO(TypedDict):
+    """Metadata for a watchlist entry not yet listed on a public exchange."""
+    name: str
+    expected_symbol: str   # placeholder ("TBD" or "TBD.SS") until the actual listing symbol is known
+    layer: str             # must be a key in LAYER_IDS
+    expected_date: str     # ISO date or quarter tag ("2026-Q3"), or "TBD"
+
+
 # Pending-IPO watchlist — humanoid plays expected to list mid-2026 onward.
 # Metadata-only. Not in TICKERS_INFO. Not fetched. Add to TICKERS_INFO when each lists.
-PENDING_IPO_WATCHLIST: list[dict[str, str]] = [
+PENDING_IPO_WATCHLIST: list[PendingIPO] = [
     {
         "name": "Unitree Robotics",
         "expected_symbol": "TBD.SS",
