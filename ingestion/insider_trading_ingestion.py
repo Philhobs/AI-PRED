@@ -185,6 +185,33 @@ def _fetch_form4_xml(cik: str, accession: str, primary_doc: str, ticker: str) ->
         return ""
 
 
+def _resolve_cutoff(lookback_years: int | None, since_filed_date: str | None) -> str | None:
+    """Pick the more recent of the two cutoffs (lookback or since_filed_date), as ISO string.
+
+    Returns None when both bounds are None (no filtering)."""
+    candidates: list[str] = []
+    if lookback_years is not None and lookback_years > 0:
+        from datetime import date as _date, timedelta as _td
+        candidates.append((_date.today() - _td(days=365 * lookback_years)).isoformat())
+    if since_filed_date is not None:
+        candidates.append(since_filed_date)
+    return max(candidates) if candidates else None
+
+
+def _last_filed_in_existing(parquet_path: Path) -> str | None:
+    """Return the max filed_date in an existing per-ticker parquet, ISO-formatted, or None."""
+    if not parquet_path.exists():
+        return None
+    try:
+        existing = pl.read_parquet(parquet_path)
+    except Exception as exc:  # noqa: BLE001 — corrupt parquet shouldn't block refresh
+        _LOG.warning("Failed to read %s (%s) — full refetch", parquet_path, exc)
+        return None
+    if existing.is_empty() or "filed_date" not in existing.columns:
+        return None
+    return str(existing["filed_date"].max())
+
+
 def _empty_insider_df() -> pl.DataFrame:
     """Return an empty DataFrame with the full insider trades schema."""
     return pl.DataFrame(schema={
@@ -200,8 +227,23 @@ def _empty_insider_df() -> pl.DataFrame:
     })
 
 
-def fetch_corporate_insider_trades(ticker: str) -> pl.DataFrame:
-    """Fetch all Form 4 P/S transactions for one ticker from EDGAR.
+def fetch_corporate_insider_trades(
+    ticker: str,
+    lookback_years: int | None = 5,
+    since_filed_date: str | None = None,
+) -> pl.DataFrame:
+    """Fetch Form 4 P/S transactions for one ticker from EDGAR.
+
+    Args:
+        lookback_years: Skip filings older than today - N years. Pass None to
+            disable (full historical backfill). Default 5y bounds typical
+            backfill cost.
+        since_filed_date: ISO date string. Skip filings filed strictly before
+            this date — used for incremental refresh from the most-recent
+            row in the existing parquet.
+
+    When both bounds are set, the LATER (more recent) date wins so we never
+    refetch already-stored filings.
 
     Returns DataFrame with schema:
     [ticker, filed_date, transaction_date, insider_name, insider_title,
@@ -213,8 +255,16 @@ def fetch_corporate_insider_trades(ticker: str) -> pl.DataFrame:
         return _empty_insider_df()
 
     filings = _fetch_form4_filings(cik, ticker)
-    all_rows: list[dict] = []
+    raw_count = len(filings)
 
+    # Apply the more restrictive of the two date bounds
+    cutoff = _resolve_cutoff(lookback_years, since_filed_date)
+    if cutoff is not None:
+        filings = [f for f in filings if f["filed"] >= cutoff]
+        _LOG.info("%s: filtered %d → %d filings (cutoff %s)",
+                  ticker, raw_count, len(filings), cutoff)
+
+    all_rows: list[dict] = []
     for i, filing in enumerate(filings):
         time.sleep(0.1)  # SEC rate limit: 10 req/s
         xml_text = _fetch_form4_xml(cik, filing["accession"], filing["primary_doc"], ticker)
@@ -479,22 +529,62 @@ def save_congressional_trades(df: pl.DataFrame, output_dir: Path) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    import argparse
+
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    parser = argparse.ArgumentParser(description="Ingest insider Form 4 + congressional trades")
+    parser.add_argument(
+        "--years", type=int, default=5,
+        help="Lookback window in years for Form 4 filings (default 5). Use --bootstrap for full history.",
+    )
+    parser.add_argument(
+        "--bootstrap", action="store_true",
+        help="Disable the years bound and fetch all historical Form 4 filings.",
+    )
+    parser.add_argument(
+        "--force", action="store_true",
+        help="Ignore existing per-ticker parquets and re-fetch from scratch (within --years).",
+    )
+    args = parser.parse_args()
+
+    lookback_years: int | None = None if args.bootstrap else args.years
 
     project_root = Path(__file__).parent.parent
     insider_dir = project_root / "data" / "raw" / "financials" / "insider_trades"
     congressional_dir = project_root / "data" / "raw" / "financials" / "congressional_trades"
 
     tickers = list(CIK_MAP.keys())
-    _LOG.info("Fetching Form 4 filings for %d tickers...", len(tickers))
+    _LOG.info("Fetching Form 4 filings for %d tickers (years=%s, bootstrap=%s, force=%s)",
+              len(tickers), args.years, args.bootstrap, args.force)
 
     for ticker in tickers:
         _LOG.info("--- %s ---", ticker)
-        df = fetch_corporate_insider_trades(ticker)
-        if len(df) > 0:
-            save_corporate_insider_trades(df, ticker, insider_dir)
+        existing_path = insider_dir / ticker / "transactions.parquet"
+        since = None if args.force else _last_filed_in_existing(existing_path)
+        if since:
+            _LOG.info("%s: incremental — only fetching filings on/after %s", ticker, since)
+
+        new_df = fetch_corporate_insider_trades(
+            ticker, lookback_years=lookback_years, since_filed_date=since,
+        )
+        if new_df.is_empty():
+            _LOG.info("No new Form 4 P/S transactions for %s", ticker)
+            continue
+
+        # Merge with existing rows if any (de-dup on (filed_date, transaction_date, insider_name, shares))
+        if not args.force and existing_path.exists():
+            try:
+                old_df = pl.read_parquet(existing_path)
+                combined = pl.concat([old_df, new_df]).unique(
+                    subset=["filed_date", "transaction_date", "insider_name", "shares"],
+                    keep="last",
+                ).sort(["filed_date", "transaction_date"])
+                save_corporate_insider_trades(combined, ticker, insider_dir)
+            except Exception as exc:  # noqa: BLE001
+                _LOG.warning("Merge with existing parquet failed for %s (%s) — writing new only", ticker, exc)
+                save_corporate_insider_trades(new_df, ticker, insider_dir)
         else:
-            _LOG.info("No Form 4 P/S transactions found for %s", ticker)
+            save_corporate_insider_trades(new_df, ticker, insider_dir)
 
     _LOG.info("Fetching congressional trades...")
     house_df = fetch_congressional_trades_house()

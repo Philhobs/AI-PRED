@@ -310,6 +310,57 @@ def test_fetch_form4_filings_skips_legacy_paper_filings():
     assert result[1]["primary_doc"] == "wf-form4_3.xml"
 
 
+def test_resolve_cutoff_picks_more_recent_bound():
+    """When both lookback_years and since_filed_date are set, the LATER date wins."""
+    from datetime import date, timedelta
+    from ingestion.insider_trading_ingestion import _resolve_cutoff
+
+    five_years_ago = (date.today() - timedelta(days=365 * 5)).isoformat()
+    last_year = (date.today() - timedelta(days=365)).isoformat()
+
+    # since_filed_date is more recent than 5y → since_filed_date wins
+    assert _resolve_cutoff(lookback_years=5, since_filed_date=last_year) == last_year
+    # since_filed_date is older than 5y → lookback_years wins
+    older = "2010-01-01"
+    assert _resolve_cutoff(lookback_years=5, since_filed_date=older) == five_years_ago
+    # only lookback_years
+    assert _resolve_cutoff(lookback_years=5, since_filed_date=None) == five_years_ago
+    # only since_filed_date
+    assert _resolve_cutoff(lookback_years=None, since_filed_date=last_year) == last_year
+    # neither → no cutoff
+    assert _resolve_cutoff(lookback_years=None, since_filed_date=None) is None
+    # zero/negative lookback ignored
+    assert _resolve_cutoff(lookback_years=0, since_filed_date=None) is None
+
+
+def test_last_filed_in_existing_returns_max(tmp_path):
+    """_last_filed_in_existing returns the max filed_date as ISO string."""
+    from datetime import date as _date
+    from ingestion.insider_trading_ingestion import _last_filed_in_existing
+
+    parquet = tmp_path / "transactions.parquet"
+    df = pl.DataFrame({
+        "ticker": ["NVDA", "NVDA"],
+        "filed_date": [_date(2024, 5, 1), _date(2025, 6, 12)],
+    })
+    df.write_parquet(parquet)
+    assert _last_filed_in_existing(parquet) == "2025-06-12"
+
+
+def test_last_filed_in_existing_missing_file(tmp_path):
+    """Missing parquet returns None (no cutoff applied)."""
+    from ingestion.insider_trading_ingestion import _last_filed_in_existing
+    assert _last_filed_in_existing(tmp_path / "absent.parquet") is None
+
+
+def test_last_filed_in_existing_empty_df(tmp_path):
+    """Empty parquet returns None — full refetch path."""
+    from ingestion.insider_trading_ingestion import _last_filed_in_existing
+    parquet = tmp_path / "empty.parquet"
+    pl.DataFrame(schema={"filed_date": pl.Date}).write_parquet(parquet)
+    assert _last_filed_in_existing(parquet) is None
+
+
 def test_fetch_form4_xml_uses_raw_xml_path():
     """_fetch_form4_xml must request the URL with the xsl prefix stripped."""
     from unittest.mock import patch, MagicMock
