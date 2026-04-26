@@ -117,6 +117,21 @@ CIK_MAP: dict[str, str] = {
     "MP":    "0001801762",
     "UUUU":  "0001477845",
     "ECL":   "0000031462",
+    # ── Strategy alignment additions (2026-04-26): power, cooling, cyber, SaaS, govt-AI ──
+    "CCJ":   "0001009001",   # Cameco — uranium fuel cycle
+    "ETN":   "0001551182",   # Eaton — DC electrical equipment
+    "NET":   "0001477333",   # Cloudflare — edge security + AI Workers
+    "PLTR":  "0001321655",   # Palantir — govt + commercial AI OS
+    "NOW":   "0001373715",   # ServiceNow
+    "CRM":   "0001108524",   # Salesforce — Agentforce
+    "ADBE":  "0000796343",   # Adobe
+    "INTU":  "0000896878",   # Intuit
+    "DDOG":  "0001561550",   # Datadog
+    "SNOW":  "0001640147",   # Snowflake — Cortex AI
+    "GTLB":  "0001653482",   # GitLab
+    "TEAM":  "0001650372",   # Atlassian
+    "PATH":  "0001734722",   # UiPath
+    "MNDY":  "0001845338",   # Monday.com
 }
 
 ANNUAL_FILERS: set[str] = {"TSM", "ASML", "NOK", "ARM"}
