@@ -71,10 +71,10 @@ def test_train_all_layers_creates_15_dirs(tmp_path, monkeypatch):
         artifacts_dir=tmp_path / "artifacts",
         horizon_tag="5d",
     )
-    # 15 layer directories should exist (layers 1–15 including 3 robotics sub-layers
-    # + 2 cyber layers), each containing a horizon_5d/ subdirectory.
+    # One layer directory per LAYER_IDS entry, each containing a horizon_5d/ subdirectory.
+    from ingestion.ticker_registry import LAYER_IDS
     layer_dirs = list((tmp_path / "artifacts").glob("layer_*"))
-    assert len(layer_dirs) == 15
+    assert len(layer_dirs) == len(LAYER_IDS)
     for layer_dir in layer_dirs:
         assert (layer_dir / "horizon_5d").exists(), f"horizon_5d/ missing under {layer_dir}"
 

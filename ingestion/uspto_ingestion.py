@@ -25,7 +25,9 @@ _GRANTS_URL = "https://api.patentsview.org/patents/query"
 _CPC_CODES = ["G06N", "H01L", "G06F", "G11C"]
 
 # Physical-AI mode: map bucket name → CPC class prefixes that count toward it.
-# A patent's cpc_group_id must START WITH any of the prefixes to be counted in that bucket.
+# See _bucket_for_cpc for the exact match rule (subgroup-stripped head must match a prefix
+# OR — for letter-ending subclass prefixes only — start with the prefix followed by a digit).
+# Plain `startswith` would over-match siblings like G05D11/G05D13 into the G05D1 bucket.
 _PHYSICAL_AI_BUCKETS: dict[str, tuple[str, ...]] = {
     "B25J":   ("B25J",),
     "B64":    ("B64C", "B64U"),

@@ -28,9 +28,10 @@ def test_hyperscalers_are_cloud():
         assert TICKER_LAYERS[t] == "cloud"
 
 
-def test_layers_returns_15():
-    from ingestion.ticker_registry import layers
-    assert len(layers()) == 15
+def test_layers_count_matches_layer_ids():
+    """layers() must enumerate every key in LAYER_IDS — count is derived, not hardcoded."""
+    from ingestion.ticker_registry import layers, LAYER_IDS
+    assert len(layers()) == len(LAYER_IDS)
 
 
 def test_layers_order():
