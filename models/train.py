@@ -45,6 +45,7 @@ from processing.patent_features import USPTO_PATENT_FEATURE_COLS, join_patent_fe
 from processing.labor_features import LABOR_FEATURE_COLS, join_labor_features
 from processing.census_trade_features import CENSUS_TRADE_FEATURE_COLS, join_census_trade_features
 from processing.physical_ai_features import PHYSICAL_AI_FEATURE_COLS, join_physical_ai_features
+from processing.ai_economics_features import AI_ECONOMICS_FEATURE_COLS, join_ai_economics_features
 from ingestion.ticker_registry import LAYER_IDS, tickers_in_layer, layers as all_layers
 
 _LOG = logging.getLogger(__name__)
@@ -118,6 +119,7 @@ FEATURE_COLS = (
     + LABOR_FEATURE_COLS
     + CENSUS_TRADE_FEATURE_COLS
     + PHYSICAL_AI_FEATURE_COLS
+    + AI_ECONOMICS_FEATURE_COLS
 )
 
 # ── Horizon registry ──────────────────────────────────────────────────────────
@@ -160,6 +162,7 @@ TIER_FEATURE_COLS: dict[str, list[str]] = {
         + LABOR_FEATURE_COLS           # labor market cycles relevant at year+ horizons
         + CENSUS_TRADE_FEATURE_COLS    # semiconductor trade cycles relevant at year+ horizons
         + PHYSICAL_AI_FEATURE_COLS    # physical-AI macro/patent cycles relevant at year+ horizons
+        + AI_ECONOMICS_FEATURE_COLS   # Sequoia-ratio + hyperscaler capex aggregates (quarterly)
         # cyber threat features excluded — noise at year+ horizons
     ),
 }
@@ -364,6 +367,12 @@ def build_training_dataset(
         fred_dir=fundamentals_dir.parent.parent / "robotics_signals",
         jolts_dir=jolts_dir,
         patents_dir=fundamentals_dir.parent.parent / "uspto" / "physical_ai",
+    )
+
+    # Join AI economics features (Sequoia ratio + hyperscaler capex aggregates)
+    df = join_ai_economics_features(
+        df,
+        raw_path=fundamentals_dir.parent / "ai_economics" / "hyperscalers_quarterly.parquet",
     )
 
     if horizon_tag is not None:

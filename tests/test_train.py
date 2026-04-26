@@ -502,7 +502,7 @@ def test_feature_cols_includes_uspto_patent():
     assert len(USPTO_PATENT_FEATURE_COLS) == 6
     for col in USPTO_PATENT_FEATURE_COLS:
         assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
-    assert len(FEATURE_COLS) == 109
+    assert len(FEATURE_COLS) == 112
 
 
 def test_uspto_patent_cols_absent_from_short_tier():
@@ -553,7 +553,7 @@ def test_feature_cols_includes_labor():
     assert len(LABOR_FEATURE_COLS) == 4
     for col in LABOR_FEATURE_COLS:
         assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
-    assert len(FEATURE_COLS) == 109, f"Expected 109 features, got {len(FEATURE_COLS)}"
+    assert len(FEATURE_COLS) == 112, f"Expected 112 features, got {len(FEATURE_COLS)}"
 
 
 def test_labor_cols_absent_from_short_tier():
@@ -602,7 +602,7 @@ def test_feature_cols_includes_census():
     assert len(CENSUS_TRADE_FEATURE_COLS) == 6
     for col in CENSUS_TRADE_FEATURE_COLS:
         assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
-    assert len(FEATURE_COLS) == 109, f"Expected 109 features, got {len(FEATURE_COLS)}"
+    assert len(FEATURE_COLS) == 112, f"Expected 112 features, got {len(FEATURE_COLS)}"
 
 
 def test_census_cols_absent_from_short_tier():
@@ -655,7 +655,7 @@ def test_feature_cols_includes_edgar_expanded():
     assert len(FUNDAMENTAL_FEATURE_COLS) == 14
     for col in FUNDAMENTAL_FEATURE_COLS:
         assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
-    assert len(FEATURE_COLS) == 109, f"Expected 109 features, got {len(FEATURE_COLS)}"
+    assert len(FEATURE_COLS) == 112, f"Expected 112 features, got {len(FEATURE_COLS)}"
 
 
 def test_edgar_expanded_cols_absent_from_short_tier():
@@ -714,7 +714,7 @@ def test_feature_cols_includes_physical_ai():
     assert len(PHYSICAL_AI_FEATURE_COLS) == 21
     for col in PHYSICAL_AI_FEATURE_COLS:
         assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
-    assert len(FEATURE_COLS) == 109, f"Expected 109 features, got {len(FEATURE_COLS)}"
+    assert len(FEATURE_COLS) == 112, f"Expected 112 features, got {len(FEATURE_COLS)}"
 
 
 def test_physical_ai_cols_absent_from_short_tier():
@@ -741,6 +741,33 @@ def test_physical_ai_cols_in_long_tier():
     from processing.physical_ai_features import PHYSICAL_AI_FEATURE_COLS
     long_cols = set(TIER_FEATURE_COLS["long"])
     for col in PHYSICAL_AI_FEATURE_COLS:
+        assert col in long_cols, f"{col} missing from long tier"
+
+
+def test_feature_cols_includes_ai_economics():
+    """FEATURE_COLS must contain the 3 AI economics features (Sequoia ratio + hyperscaler capex)."""
+    from models.train import FEATURE_COLS
+    from processing.ai_economics_features import AI_ECONOMICS_FEATURE_COLS
+    assert len(AI_ECONOMICS_FEATURE_COLS) == 3
+    for col in AI_ECONOMICS_FEATURE_COLS:
+        assert col in FEATURE_COLS, f"{col} missing from FEATURE_COLS"
+
+
+def test_ai_economics_cols_absent_from_short_tier():
+    """AI economics features (quarterly cadence) must not be in short tier."""
+    from models.train import TIER_FEATURE_COLS
+    from processing.ai_economics_features import AI_ECONOMICS_FEATURE_COLS
+    short = set(TIER_FEATURE_COLS["short"])
+    for col in AI_ECONOMICS_FEATURE_COLS:
+        assert col not in short, f"{col} must not be in short tier"
+
+
+def test_ai_economics_cols_in_long_tier():
+    """AI economics cols must be present in long tier."""
+    from models.train import TIER_FEATURE_COLS
+    from processing.ai_economics_features import AI_ECONOMICS_FEATURE_COLS
+    long_cols = set(TIER_FEATURE_COLS["long"])
+    for col in AI_ECONOMICS_FEATURE_COLS:
         assert col in long_cols, f"{col} missing from long tier"
 
 

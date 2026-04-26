@@ -48,6 +48,7 @@ from processing.patent_features import join_patent_features
 from processing.labor_features import join_labor_features
 from processing.census_trade_features import join_census_trade_features
 from processing.physical_ai_features import join_physical_ai_features
+from processing.ai_economics_features import join_ai_economics_features
 
 
 def _load_pickle(path: Path):
@@ -150,6 +151,12 @@ def _build_feature_df(
         fred_dir=data_dir / "robotics_signals",
         jolts_dir=jolts_dir,
         patents_dir=data_dir / "uspto" / "physical_ai",
+    )
+
+    # Join AI economics features (Sequoia ratio + hyperscaler capex aggregates)
+    df = join_ai_economics_features(
+        df,
+        raw_path=data_dir / "financials" / "ai_economics" / "hyperscalers_quarterly.parquet",
     )
 
     return df
