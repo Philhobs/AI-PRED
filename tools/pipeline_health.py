@@ -18,7 +18,9 @@ _PROJECT_ROOT = Path(__file__).parent.parent
 _TODAY = date.today()
 
 # Each entry: (display_name, data_path_or_glob, date_column, cadence)
-# cadence: "daily" → warn if >3 days, "weekly" → warn if >10 days, "quarterly" → never warn
+# cadence: "daily" → warn if >3 days, "weekly" → warn if >10 days,
+#          "monthly" → warn if >60 days (covers FRED's 4-6 week pub lag),
+#          "quarterly" → never warn
 _SOURCES: list[tuple[str, str, str, str]] = [
     (
         "OHLCV",
@@ -36,7 +38,7 @@ _SOURCES: list[tuple[str, str, str, str]] = [
         "Earnings",
         str(_PROJECT_ROOT / "data/raw/financials/earnings/earnings_surprises.parquet"),
         "quarter_end",
-        "weekly",
+        "monthly",
     ),
     (
         "Sentiment (scored)",
@@ -68,9 +70,87 @@ _SOURCES: list[tuple[str, str, str, str]] = [
         "period_end",
         "quarterly",
     ),
+    (
+        "FX rates (9 pairs)",
+        str(_PROJECT_ROOT / "data/raw/financials/fx/*.parquet"),
+        "date",
+        "daily",
+    ),
+    (
+        "Insider trades (Form 4)",
+        str(_PROJECT_ROOT / "data/raw/financials/insider_trades/**/*.parquet"),
+        "filed_date",
+        "weekly",
+    ),
+    (
+        "Deal graph (8-K)",
+        str(_PROJECT_ROOT / "data/raw/graph/deals.parquet"),
+        "filed_date",
+        "weekly",
+    ),
+    (
+        "Robotics signals (FRED 4 series)",
+        str(_PROJECT_ROOT / "data/raw/robotics_signals/*.parquet"),
+        "date",
+        "monthly",
+    ),
+    (
+        "BLS JOLTS",
+        str(_PROJECT_ROOT / "data/raw/bls_jolts/date=*/openings.parquet"),
+        "date",
+        "monthly",
+    ),
+    (
+        "Census trade",
+        str(_PROJECT_ROOT / "data/raw/census_trade/date=*/trade.parquet"),
+        "date",
+        "monthly",
+    ),
+    (
+        "USPTO physical-AI",
+        str(_PROJECT_ROOT / "data/raw/uspto/physical_ai/cpc_class=*/filings.parquet"),
+        "quarter_end",
+        "quarterly",
+    ),
+    (
+        "FERC interconnection queue",
+        str(_PROJECT_ROOT / "data/raw/ferc_queue/date=*/queue.parquet"),
+        "snapshot_date",
+        "quarterly",
+    ),
+    (
+        "USAJOBS",
+        str(_PROJECT_ROOT / "data/raw/usajobs/date=*/postings.parquet"),
+        "posted_date",
+        "weekly",
+    ),
+    (
+        "SAM.gov contracts",
+        str(_PROJECT_ROOT / "data/raw/sam_gov/date=*/awards.parquet"),
+        "award_date",
+        "weekly",
+    ),
+    (
+        "Cyber threat (NVD)",
+        str(_PROJECT_ROOT / "data/raw/cyber_threat/**/*.parquet"),
+        "published_date",
+        "weekly",
+    ),
+    (
+        "OWID energy geography",
+        str(_PROJECT_ROOT / "data/raw/energy_geo/*.parquet"),
+        "year",
+        "quarterly",
+    ),
+    (
+        "FRED financial macro",
+        str(_PROJECT_ROOT / "data/raw/financials/fred/*.parquet"),
+        "date",
+        "monthly",
+    ),
 ]
 
-_STALE_DAYS = {"daily": 3, "weekly": 10, "quarterly": 999}
+_STALE_DAYS = {"daily": 3, "weekly": 10, "monthly": 60, "quarterly": 999}
 
 
 def _latest_date(glob_or_path: str, date_col: str) -> date | None:
