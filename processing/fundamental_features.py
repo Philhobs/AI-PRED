@@ -68,8 +68,11 @@ def join_fundamentals(
     glob = str(fundamentals_dir / "*" / "quarterly.parquet")
 
     try:
+        # missing_columns='insert' tolerates per-ticker parquets written with an
+        # older schema (pre-EDGAR-expansion): missing TTM columns become null
+        # instead of crashing. Old parquets get refetched on next EDGAR run.
         fund_df = (
-            pl.scan_parquet(glob, schema=_FUND_SCHEMA)
+            pl.scan_parquet(glob, schema=_FUND_SCHEMA, missing_columns="insert")
             .with_columns(pl.col("period_end").cast(pl.Date))
             .collect()
             .sort(["ticker", "period_end"])
