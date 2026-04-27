@@ -18,8 +18,12 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import polars as pl
+import requests
 
 from ingestion.ticker_registry import TICKER_LAYERS, TICKERS
+
+_HEADERS = {"User-Agent": "AI-PRED Research plarenberg@gmail.com"}
+_EDGAR_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
 
 _LOG = logging.getLogger(__name__)
 
@@ -201,6 +205,104 @@ def _parse_8k_for_deals(
     return rows
 
 
+def _fetch_recent_8ks(cik: str, ticker: str, days_back: int = 180) -> list[dict]:
+    """Fetch 8-K accession numbers + primary document paths from EDGAR submissions API.
+
+    Returns list of dicts with keys: accession (no dashes), filed (ISO), primary_doc.
+    Filters to 8-K form filings within the lookback window. Fail-soft per ticker.
+    """
+    cik_padded = cik.lstrip("0").zfill(10)
+    url = _EDGAR_SUBMISSIONS_URL.format(cik=cik_padded)
+    try:
+        resp = requests.get(url, headers=_HEADERS, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:  # noqa: BLE001
+        _LOG.warning("[deals] %s: submissions fetch failed (%s); skipping", ticker, exc)
+        return []
+
+    recent = data.get("filings", {}).get("recent", {})
+    forms = recent.get("form", [])
+    accessions = recent.get("accessionNumber", [])
+    filed_dates = recent.get("filingDate", [])
+    primary_docs = recent.get("primaryDocument", [""] * len(forms))
+
+    cutoff = (date.today() - timedelta(days=days_back)).isoformat()
+    rows: list[dict] = []
+    for form, accession, filed, primary_doc in zip(forms, accessions, filed_dates, primary_docs):
+        if form != "8-K":
+            continue
+        if filed < cutoff:
+            continue
+        if not primary_doc:
+            continue
+        rows.append({
+            "accession": accession.replace("-", ""),
+            "filed": filed,
+            "primary_doc": primary_doc,
+        })
+    return rows
+
+
+def _fetch_8k_text(cik: str, accession: str, primary_doc: str, ticker: str) -> str:
+    """Fetch 8-K filing's primary document text (HTML stripped). Empty string on failure."""
+    cik_num = cik.lstrip("0")
+    url = f"https://www.sec.gov/Archives/edgar/data/{cik_num}/{accession}/{primary_doc}"
+    try:
+        resp = requests.get(url, headers=_HEADERS, timeout=30)
+        if resp.status_code == 404:
+            return ""
+        resp.raise_for_status()
+        # Strip HTML tags crudely — keep plain text for keyword matching
+        text = re.sub(r"<[^>]+>", " ", resp.text)
+        text = re.sub(r"&nbsp;|&#160;", " ", text)
+        text = re.sub(r"\s+", " ", text)
+        return text.strip()
+    except Exception as exc:  # noqa: BLE001
+        _LOG.debug("[deals] %s accession %s text fetch failed: %s", ticker, accession, exc)
+        return ""
+
+
+def _crawl_8k_filings(cik_map: dict[str, str], days_back: int = 180) -> list[dict]:
+    """Walk every (ticker, cik) and pull recent 8-K filings + extract Item 1.01 text.
+
+    Returns a list of {text, date, url, filer_ticker} dicts ready for build_deals().
+    Filters to filings whose text contains 'item 1.01' (Material Definitive Agreement)
+    OR a deal-keyword from _DEAL_TYPE_KEYWORDS — saves pulling thousands of routine 8-Ks.
+    """
+    deal_keywords = {kw for kws in _DEAL_TYPE_KEYWORDS.values() for kw in kws}
+    item_marker = "item 1.01"
+    out: list[dict] = []
+
+    for i, (ticker, cik) in enumerate(cik_map.items(), start=1):
+        time.sleep(0.1)   # SEC 10 req/s budget — submissions API call
+        filings = _fetch_recent_8ks(cik, ticker, days_back=days_back)
+        if not filings:
+            continue
+        for filing in filings:
+            time.sleep(0.1)   # text fetch
+            text = _fetch_8k_text(cik, filing["accession"], filing["primary_doc"], ticker)
+            if not text:
+                continue
+            text_lower = text.lower()
+            # Quick keyword pre-filter
+            if item_marker not in text_lower and not any(k in text_lower for k in deal_keywords):
+                continue
+            out.append({
+                "text": text,
+                "date": filing["filed"],
+                "url": f"https://www.sec.gov/Archives/edgar/data/{cik.lstrip('0')}/{filing['accession']}/{filing['primary_doc']}",
+                "filer_ticker": ticker,
+            })
+        if i % 20 == 0:
+            _LOG.info("[deals] processed %d/%d tickers, %d candidate 8-Ks so far",
+                      i, len(cik_map), len(out))
+
+    _LOG.info("[deals] crawl complete: %d candidate 8-Ks across %d tickers",
+              len(out), len(cik_map))
+    return out
+
+
 def _load_manual_deals(csv_path: Path) -> pl.DataFrame:
     """Load deals_override.csv and return with confidence=1.0 and layer columns."""
     if not csv_path.exists():
@@ -317,8 +419,10 @@ def build_deals(
             text = filing.get("text", "")
             filing_date_str = filing.get("date", str(as_of))
             url = filing.get("url", "")
-            # No filer ticker in generic filing dicts — use empty string to skip self-exclusion
-            rows = _parse_8k_for_deals(text, filer_ticker="", watchlist=watchlist)
+            # filer_ticker (when present) lets _parse_8k_for_deals skip
+            # self-pair extraction (filer mentioning its own name).
+            filer = filing.get("filer_ticker", "")
+            rows = _parse_8k_for_deals(text, filer_ticker=filer, watchlist=watchlist)
             for row in rows:
                 row["date"] = filing_date_str
                 row["source_url"] = url
@@ -400,11 +504,45 @@ def save_deals(
 
 
 if __name__ == "__main__":
+    import argparse
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     from pathlib import Path
+    from ingestion.edgar_fundamentals_ingestion import CIK_MAP
+
+    parser = argparse.ArgumentParser(description="Build AI infrastructure deal graph from SEC 8-K + manual CSV.")
+    parser.add_argument(
+        "--days", type=int, default=180,
+        help="Lookback window in days for 8-K crawl (default 180).",
+    )
+    parser.add_argument(
+        "--no-crawl", action="store_true",
+        help="Skip live 8-K crawl, use only manual_overrides.csv (legacy behavior).",
+    )
+    args = parser.parse_args()
+
     project_root = Path(__file__).parent.parent
     manual_csv = project_root / "data" / "manual" / "deals_override.csv"
     output_dir = project_root / "data" / "raw" / "graph"
 
-    deals, edges = build_deals(manual_csv)
+    if args.no_crawl:
+        # Legacy: manual deals only
+        deals, edges = build_deals(manual_csv)
+    else:
+        # Crawl recent SEC 8-Ks for material agreements + combine with manual
+        _LOG.info("Crawling SEC 8-K filings (last %d days, %d tickers)...",
+                  args.days, len(CIK_MAP))
+        filings = _crawl_8k_filings(CIK_MAP, days_back=args.days)
+
+        # build_deals enriched-mode returns deals_df only — derive edges separately
+        deals = build_deals(
+            filings=filings,
+            manual_csv_path=manual_csv,
+            output_path=output_dir / "deals.parquet",
+        )
+        edges = _build_edges(deals, as_of=date.today())
+        # build_deals already wrote deals.parquet; just save edges
+        edges.write_parquet(output_dir / "edges.parquet", compression="snappy")
+        _LOG.info("Saved %d deals (8-K crawl + manual) and %d edges", len(deals), len(edges))
+        import sys; sys.exit(0)
+
     save_deals(deals, edges, output_dir)
