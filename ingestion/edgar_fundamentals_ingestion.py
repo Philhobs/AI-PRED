@@ -47,7 +47,7 @@ CIK_MAP: dict[str, str] = {
     "CEG":   "0001868275",
     "VST":   "0001692819",
     "NRG":   "0001013871",
-    "TLN":   "0000099590",
+    "TLN":   "0001622536",   # post-Chapter-11 entity (Talen Energy Corp); old CIK 0000099590 was 404
     # ── Layer 1 — New Cloud tickers ───────────────────────────────────────────
     "ORCL":  "0001341439",
     "IBM":   "0000051143",
@@ -58,7 +58,7 @@ CIK_MAP: dict[str, str] = {
     "CDNS":  "0000813672",
     # ARM (0001980994) and ASML already present — foreign filers, no Form 4
     # ── Layer 3 — Semiconductor Equipment & Materials ─────────────────────────
-    "ENTG":  "0001101781",
+    "ENTG":  "0001101302",   # current Entegris Inc registration; old CIK 0001101781 was 404
     "MKSI":  "0000062996",
     "UCTT":  "0001275014",
     "ICHR":  "0001677576",
