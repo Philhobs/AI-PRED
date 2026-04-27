@@ -104,3 +104,54 @@ def test_enrich_writes_enriched_parquet(tmp_path, monkeypatch):
     assert "is_liquid" in enriched.columns
     assert "model_agreement" in enriched.columns
     assert "peer_correlation_90d" in enriched.columns
+
+
+# ── Horizon-aware path resolution (regression for silent enrich failures) ──
+
+def test_resolve_predictions_path_prefers_explicit_horizon(tmp_path):
+    """When a horizon arg is given, return that horizon's file or None."""
+    from processing.portfolio_metrics import _resolve_predictions_path
+    date_dir = tmp_path / "date=2026-04-24"
+    (date_dir / "horizon=5d").mkdir(parents=True)
+    (date_dir / "horizon=5d" / "predictions.parquet").touch()
+    (date_dir / "horizon=252d").mkdir()
+    (date_dir / "horizon=252d" / "predictions.parquet").touch()
+
+    assert _resolve_predictions_path(date_dir, horizon="5d").name == "predictions.parquet"
+    assert _resolve_predictions_path(date_dir, horizon="5d").parent.name == "horizon=5d"
+    assert _resolve_predictions_path(date_dir, horizon="20d") is None   # not present
+
+
+def test_resolve_predictions_path_legacy_alias_first(tmp_path):
+    """Legacy unprefixed predictions.parquet (252d alias) wins when horizon=None."""
+    from processing.portfolio_metrics import _resolve_predictions_path
+    date_dir = tmp_path / "date=2026-04-24"
+    date_dir.mkdir()
+    (date_dir / "horizon=5d").mkdir()
+    (date_dir / "horizon=5d" / "predictions.parquet").touch()
+    (date_dir / "predictions.parquet").touch()  # legacy alias
+
+    p = _resolve_predictions_path(date_dir, horizon=None)
+    assert p.name == "predictions.parquet"
+    assert p.parent == date_dir   # legacy path, not under horizon=*/
+
+
+def test_resolve_predictions_path_falls_back_to_any_horizon(tmp_path):
+    """When neither legacy alias nor 252d exists, use whichever horizon is present."""
+    from processing.portfolio_metrics import _resolve_predictions_path
+    date_dir = tmp_path / "date=2026-04-24"
+    (date_dir / "horizon=5d").mkdir(parents=True)
+    (date_dir / "horizon=5d" / "predictions.parquet").touch()
+
+    p = _resolve_predictions_path(date_dir, horizon=None)
+    assert p is not None
+    assert p.parent.name == "horizon=5d"
+
+
+def test_resolve_predictions_path_returns_none_when_empty(tmp_path):
+    """Empty date_dir returns None (caller raises FileNotFoundError)."""
+    from processing.portfolio_metrics import _resolve_predictions_path
+    date_dir = tmp_path / "date=2026-04-24"
+    date_dir.mkdir()
+    assert _resolve_predictions_path(date_dir, horizon=None) is None
+    assert _resolve_predictions_path(date_dir, horizon="5d") is None

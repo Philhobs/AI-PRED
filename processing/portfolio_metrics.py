@@ -179,20 +179,60 @@ def _peer_correlation(
     )
 
 
-def enrich(date_str: str, predictions_dir: Path | None = None) -> pl.DataFrame:
+def _resolve_predictions_path(date_dir: Path, horizon: str | None) -> Path | None:
+    """Find the right predictions.parquet for enrichment.
+
+    Resolution order:
+      1. If horizon explicit: data/predictions/date=*/horizon={horizon}/predictions.parquet
+      2. Legacy alias: data/predictions/date=*/predictions.parquet (252d-only)
+      3. 252d horizon-partitioned: date=*/horizon=252d/predictions.parquet
+      4. ANY horizon under date=*/horizon=*/predictions.parquet (alphabetical)
+    """
+    if horizon is not None:
+        candidate = date_dir / f"horizon={horizon}" / "predictions.parquet"
+        return candidate if candidate.exists() else None
+
+    legacy = date_dir / "predictions.parquet"
+    if legacy.exists():
+        return legacy
+
+    h252 = date_dir / "horizon=252d" / "predictions.parquet"
+    if h252.exists():
+        return h252
+
+    horizon_files = sorted(date_dir.glob("horizon=*/predictions.parquet"))
+    return horizon_files[0] if horizon_files else None
+
+
+def enrich(
+    date_str: str,
+    predictions_dir: Path | None = None,
+    horizon: str | None = None,
+) -> pl.DataFrame:
     """
     Enrich predictions for a given date with portfolio metrics.
 
-    Reads: data/predictions/date={date_str}/predictions.parquet
+    Args:
+        date_str: ISO date.
+        predictions_dir: defaults to data/predictions/.
+        horizon: optional horizon tag (e.g. "5d", "252d"). When omitted, prefers
+            the legacy unprefixed predictions.parquet (always 252d), then falls
+            back to 252d's horizon-partitioned file, then to whichever horizon
+            has predictions on disk for date_str.
+
+    Reads:  data/predictions/date={date_str}/[horizon={horizon}/]predictions.parquet
     Writes: data/predictions/date={date_str}/predictions_enriched.parquet
     Returns: enriched DataFrame
     """
     if predictions_dir is None:
         predictions_dir = Path("data/predictions")
 
-    pred_path = predictions_dir / f"date={date_str}" / "predictions.parquet"
-    if not pred_path.exists():
-        raise FileNotFoundError(f"No predictions at {pred_path}. Run inference first.")
+    date_dir = predictions_dir / f"date={date_str}"
+    pred_path = _resolve_predictions_path(date_dir, horizon)
+    if pred_path is None:
+        raise FileNotFoundError(
+            f"No predictions found under {date_dir} (horizon={horizon}). Run inference first."
+        )
 
     df = pl.read_parquet(pred_path)
     as_of = date.fromisoformat(date_str)
