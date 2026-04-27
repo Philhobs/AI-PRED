@@ -41,12 +41,6 @@ _SOURCES: list[tuple[str, str, str, str]] = [
         "monthly",
     ),
     (
-        "Sentiment (scored)",
-        str(_PROJECT_ROOT / "data/raw/news/scored/**/*.parquet"),
-        "article_date",
-        "daily",
-    ),
-    (
         "Sentiment (features)",
         str(_PROJECT_ROOT / "data/raw/news/sentiment_features/*/daily.parquet"),
         "date",
@@ -85,8 +79,8 @@ _SOURCES: list[tuple[str, str, str, str]] = [
     (
         "Deal graph (8-K)",
         str(_PROJECT_ROOT / "data/raw/graph/deals.parquet"),
-        "filed_date",
-        "weekly",
+        "date",
+        "monthly",   # 8-K material agreements are naturally sporadic
     ),
     (
         "Robotics signals (FRED 4 series)",
@@ -142,12 +136,9 @@ _SOURCES: list[tuple[str, str, str, str]] = [
         "year",
         "quarterly",
     ),
-    (
-        "yfinance market caps",
-        str(_PROJECT_ROOT / "data/raw/financials/market_caps.parquet"),
-        "date",
-        "weekly",
-    ),
+    # NOTE: data/raw/financials/market_caps.parquet is an *inference-side* cache
+    # written by processing/portfolio_metrics.py during prediction enrichment, not
+    # by the daily refresh pipeline. Excluded from health check intentionally.
 ]
 
 _STALE_DAYS = {"daily": 3, "weekly": 10, "monthly": 60, "quarterly": 999}
