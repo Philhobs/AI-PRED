@@ -350,17 +350,24 @@ def ingest_quarter(
     Output: output_dir/<YYYYQQ>/<CIK>.parquet (only rows matching cusip_map).
     Skips filers where the output file already exists (idempotent).
     """
-    quarter_str = f"{year}Q{quarter}"
-    period_end  = _quarter_end_date(year, quarter)
-    out_dir     = output_dir / quarter_str
+    # Directory naming reflects the FILING-quarter (when EDGAR's quarterly index
+    # listed the filing). The data semantics — period_end + quarter columns —
+    # reflect the REPORTING quarter, which is one quarter earlier (a 13F filed
+    # in Q2 reports on Q1 holdings; the 45-day filing deadline runs after the
+    # reporting quarter ends).
+    filing_quarter_str = f"{year}Q{quarter}"
+    prior_year, prior_qtr = _prior_quarter(year, quarter)
+    reporting_quarter_str = f"{prior_year}Q{prior_qtr}"
+    period_end = _quarter_end_date(prior_year, prior_qtr)
+
+    out_dir = output_dir / filing_quarter_str
     out_dir.mkdir(parents=True, exist_ok=True)
 
     index_df = fetch_quarter_index(year, quarter)
     if index_df.is_empty():
-        _LOG.warning("[13F] No 13F-HR filers found for %s", quarter_str)
+        _LOG.warning("[13F] No 13F-HR filers found for %s", filing_quarter_str)
         return 0
 
-    prior_year, prior_qtr = _prior_quarter(year, quarter)
     prior_quarter_dir = output_dir / f"{prior_year}Q{prior_qtr}"
     top_ciks = rank_filers_by_position_count(
         index_df, top_n=top_n, prior_quarter_dir=prior_quarter_dir
@@ -379,12 +386,12 @@ def ingest_quarter(
 
         out_path = out_dir / f"{cik}.parquet"
         if out_path.exists():
-            _LOG.debug("[13F] %s/%s already exists — skip", quarter_str, cik)
+            _LOG.debug("[13F] %s/%s already exists — skip", filing_quarter_str, cik)
             continue
 
         xml = fetch_filing_xml(cik, filename)
         if xml is None:
-            _LOG.debug("[13F] %s/%s: no XML found", quarter_str, cik)
+            _LOG.debug("[13F] %s/%s: no XML found", filing_quarter_str, cik)
             continue
 
         rows = parse_holdings_xml(xml, cusip_map)
@@ -393,18 +400,18 @@ def ingest_quarter(
 
         for row in rows:
             row["cik"]        = cik
-            row["quarter"]    = quarter_str
+            row["quarter"]    = reporting_quarter_str
             row["period_end"] = dt.date.fromisoformat(period_end)
 
         table = pa.Table.from_pylist(rows, schema=_RAW_SCHEMA)
         pq.write_table(table, str(out_path), compression="snappy")
         total_rows += len(rows)
-        _LOG.info("[13F] %s/%s: %d watchlist rows", quarter_str, cik, len(rows))
+        _LOG.info("[13F] %s/%s: %d watchlist rows", filing_quarter_str, cik, len(rows))
 
         if i % 50 == 0 and i > 0:
-            _LOG.info("[13F] %s: %d/%d filers processed, %d rows", quarter_str, i, len(top_ciks), total_rows)
+            _LOG.info("[13F] %s: %d/%d filers processed, %d rows", filing_quarter_str, i, len(top_ciks), total_rows)
 
-    _LOG.info("[13F] %s complete: %d total rows", quarter_str, total_rows)
+    _LOG.info("[13F] %s complete: %d total rows", filing_quarter_str, total_rows)
     return total_rows
 
 

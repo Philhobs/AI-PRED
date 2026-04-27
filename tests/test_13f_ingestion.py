@@ -173,3 +173,29 @@ def test_build_13f_history_skips_existing_quarters(tmp_path):
     # Today is 2026-04-16 so all of 2024 is in the past → Q2, Q3, Q4 called (3 quarters).
     assert (2024, 1) not in call_count, "2024Q1 has parquet, should be skipped"
     assert len(call_count) == 3, f"Expected 3 calls (Q2/Q3/Q4), got {len(call_count)}: {call_count}"
+
+
+# ── Regression: period_end must reflect the REPORTING quarter (one before filing) ──
+
+def test_period_end_uses_prior_quarter():
+    """A 13F filed in Q2 reports on Q1 holdings (45-day filing deadline).
+    period_end must therefore be the END of the prior quarter, not the
+    filing-quarter's end."""
+    from ingestion.sec_13f_ingestion import _quarter_end_date, _prior_quarter
+
+    # Q2 2026 filings → period_end 2026-03-31 (Q1)
+    pq = _prior_quarter(2026, 2)
+    assert _quarter_end_date(*pq) == "2026-03-31"
+
+    # Q1 2026 filings → period_end 2025-12-31 (Q4 of prior year)
+    pq = _prior_quarter(2026, 1)
+    assert pq == (2025, 4)
+    assert _quarter_end_date(*pq) == "2025-12-31"
+
+    # Q3 2026 filings → period_end 2026-06-30 (Q2)
+    pq = _prior_quarter(2026, 3)
+    assert _quarter_end_date(*pq) == "2026-06-30"
+
+    # Q4 2026 filings → period_end 2026-09-30 (Q3)
+    pq = _prior_quarter(2026, 4)
+    assert _quarter_end_date(*pq) == "2026-09-30"
