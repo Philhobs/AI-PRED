@@ -31,13 +31,13 @@ CIK_MAP: dict[str, str] = {
     "NVDA":  "0001045810",
     "AMD":   "0000002488",
     "AVGO":  "0001730168",
-    "MRVL":  "0001058057",
+    "MRVL":  "0001835632",   # 2025 audit: was 0001058057 (5y stale, last 8-K 2021-04)
     "TSM":   "0001046179",
     "ASML":  "0000937556",
     "AMAT":  "0000796343",
     "LRCX":  "0000707549",
     "KLAC":  "0000319201",
-    "VRT":   "0001748157",
+    "VRT":   "0001674101",   # 2025 audit: was 0001748157 (no 8-Ks in old CIK)
     "SMCI":  "0000910638",
     "DELL":  "0001571996",
     "HPE":   "0001645590",
@@ -63,20 +63,20 @@ CIK_MAP: dict[str, str] = {
     "UCTT":  "0001275014",
     "ICHR":  "0001677576",
     "TER":   "0000097476",
-    "ONTO":  "0000315374",
+    "ONTO":  "0000704532",   # 2025 audit: was 0000315374 (36d stale)
     "APD":   "0000002969",
-    "LIN":   "0001707092",
+    "LIN":   "0001707925",   # 2025 audit: was 0001707092 (5y stale, last 8-K 2020-10)
     # ── Layer 4 — Networking / Interconnect ───────────────────────────────────
-    "ANET":  "0001313925",
+    "ANET":  "0001596532",   # 2025 audit: was 0001313925 (no 8-Ks in old CIK)
     "CSCO":  "0000858877",
     "CIEN":  "0000936395",
     "COHR":  "0000820318",
-    "LITE":  "0001439231",
+    "LITE":  "0001633978",   # 2025 audit: was 0001439231 (no 8-Ks in old CIK)
     "INFN":  "0001101680",
-    "VIAV":  "0000936744",
+    "VIAV":  "0000912093",   # 2025 audit: was 0000936744 (no 8-Ks in old CIK)
     # NOK is a foreign private issuer — no Form 4
     # ── Layer 5 — Servers / Storage / Systems ─────────────────────────────────
-    "NTAP":  "0001108320",
+    "NTAP":  "0001002047",   # 2025 audit: was 0001108320 (5y stale, last 8-K 2021-04)
     "PSTG":  "0001474432",
     "STX":   "0001137789",
     "WDC":   "0000106040",
@@ -89,32 +89,32 @@ CIK_MAP: dict[str, str] = {
     "SO":    "0000092122",
     "EXC":   "0001109357",
     "ETR":   "0000049600",
-    "GEV":   "0001986936",
+    "GEV":   "0001996810",   # 2025 audit: was 0001986936 (no 8-Ks in old CIK)
     "BWX":   "0001643953",
-    "OKLO":  "0001840198",
+    "OKLO":  "0001849056",   # 2025 audit: was 0001840198 (no 8-Ks in old CIK)
     "SMR":   "0001822928",
     "FSLR":  "0001274494",
     # ── Layer 8 — Cooling / Facilities / Backup Power ─────────────────────────
     "NVENT": "0001681903",
     "JCI":   "0000833444",
     "TT":    "0001466258",
-    "CARR":  "0001783398",
+    "CARR":  "0001783180",   # 2025 audit: was 0001783398 (31d stale)
     "GNRC":  "0001474735",
     "HUBB":  "0000048898",
     # ── Layer 9 — Grid / Construction / Electrical ────────────────────────────
-    "PWR":   "0001108827",
+    "PWR":   "0001050915",   # 2025 audit: was 0001108827 (5y stale, last 8-K 2021-03)
     "MTZ":   "0000015615",
     "EME":   "0000105634",
     "MYR":   "0000700923",
-    "IESC":  "0000049588",
-    "AGX":   "0001068875",
+    "IESC":  "0001048268",   # 2025 audit: was 0000049588 (24y stale, last 8-K 2002-03)
+    "AGX":   "0000100591",   # 2025 audit: was 0001068875 (~2y stale, last 8-K 2023-11)
     # ── Layer 10 — Metals / Materials ─────────────────────────────────────────
     "FCX":   "0000831259",
-    "SCCO":  "0001001290",
+    "SCCO":  "0001001838",   # 2025 audit: was 0001001290 (no 8-Ks in old CIK)
     "AA":    "0000004281",
     "NUE":   "0000073309",
-    "STLD":  "0001022652",
-    "MP":    "0001801762",
+    "STLD":  "0001022671",   # 2025 audit: was 0001022652 (61d stale)
+    "MP":    "0001801368",   # 2025 audit: was 0001801762 (~3y stale, last 8-K 2022-11)
     "UUUU":  "0001477845",
     "ECL":   "0000031462",
     # ── Strategy alignment additions (2026-04-26): power, cooling, cyber, SaaS, govt-AI ──
