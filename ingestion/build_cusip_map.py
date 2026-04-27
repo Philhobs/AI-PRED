@@ -124,6 +124,25 @@ _STATIC_CUSIP_MAP: dict[str, str] = {
     "MP":    "553368101",  # MP Materials Corp
     "UUUU":  "292671708",  # Energy Fuels Inc
     "ECL":   "278865100",  # Ecolab Inc
+    # ── 2026-04-26 strategy alignment additions ──────────────────────────────
+    "CCJ":   "13321L108",  # Cameco Corp (uranium — Layer 7 power)
+    "ETN":   "G29183103",  # Eaton plc (Ireland-incorporated — Layer 8 cooling)
+    "NET":   "18915M107",  # Cloudflare Inc Class A (Layer 14 cyber_pureplay)
+    # Layer 16 — Enterprise SaaS / Agentic Software (NEW)
+    "PLTR":  "69608A108",  # Palantir Technologies Class A
+    "NOW":   "81762P102",  # ServiceNow Inc
+    "CRM":   "79466L302",  # Salesforce Inc
+    "ADBE":  "00724F101",  # Adobe Inc
+    "INTU":  "461202103",  # Intuit Inc
+    "DDOG":  "23804L103",  # Datadog Inc Class A
+    "SNOW":  "833445105",  # Snowflake Inc Class A
+    "GTLB":  "376372102",  # GitLab Inc Class A
+    "PATH":  "90364P105",  # UiPath Inc Class A
+    "TEAM":  "G06242104",  # Atlassian Corporation Plc Class A (UK-incorporated)
+    "MNDY":  "M75158109",  # monday.com Ltd (Israel-incorporated)
+    # Foreign exchanges (000660.KS SK Hynix, 005930.KS Samsung) intentionally
+    # omitted: 13F-HR covers US securities only; KRX-listed equities don't
+    # appear in US institutional holdings filings.
 }
 
 
