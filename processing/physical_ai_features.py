@@ -114,8 +114,9 @@ def _load_patent_bucket(patents_dir: Path, bucket: str) -> pl.DataFrame:
 
 def _value_at(df: pl.DataFrame, query_date: date, value_col: str, date_col: str,
               tolerance_days: int) -> float | None:
-    """Most recent observation in df where date_col <= query_date and within tolerance.
-    Returns None if no row satisfies the constraint."""
+    """[unit-test helper] Most recent observation in df where date_col <= query_date
+    and within tolerance. Used by tests for boundary verification; the production
+    join_physical_ai_features path uses vectorized join_asof — see below."""
     if df.is_empty():
         return None
     eligible = df.filter(pl.col(date_col) <= query_date)
@@ -127,12 +128,37 @@ def _value_at(df: pl.DataFrame, query_date: date, value_col: str, date_col: str,
     return row[value_col]
 
 
-def _value_one_year_prior(df: pl.DataFrame, query_date: date, value_col: str, date_col: str,
-                          tolerance_days: int) -> float | None:
-    """Most recent observation where date <= (query_date - 365 days), within tolerance."""
-    from datetime import timedelta
-    target = query_date - timedelta(days=365)
-    return _value_at(df, target, value_col, date_col, tolerance_days)
+def _asof_join_level(query_df: pl.DataFrame,
+                     query_date_col: str,
+                     src_df: pl.DataFrame,
+                     src_date_col: str,
+                     src_value_col: str,
+                     alias: str,
+                     tolerance_days: int) -> pl.DataFrame:
+    """join_asof backward with tolerance — returns query_df + one new {alias: Float64} column.
+
+    When src is empty, fills the new column with nulls instead of crashing.
+    """
+    if src_df.is_empty():
+        return query_df.with_columns(pl.lit(None).cast(pl.Float64).alias(alias))
+    src_sorted = (
+        src_df.sort(src_date_col)
+        .select([
+            pl.col(src_date_col).alias("_join_date"),
+            pl.col(src_value_col).cast(pl.Float64).alias(alias),
+        ])
+    )
+    return (
+        query_df.sort(query_date_col)
+        .join_asof(
+            src_sorted,
+            left_on=query_date_col,
+            right_on="_join_date",
+            strategy="backward",
+            tolerance=f"{tolerance_days}d",
+        )
+        .drop("_join_date")
+    )
 
 
 def join_physical_ai_features(
@@ -141,7 +167,13 @@ def join_physical_ai_features(
     jolts_dir: Path,
     patents_dir: Path,
 ) -> pl.DataFrame:
-    """Join the 21 physical-AI features onto spine. Spine must have 'ticker' (Utf8) and 'date' (Date)."""
+    """Join the 21 physical-AI features onto spine. Spine must have 'ticker' (Utf8) and 'date' (Date).
+
+    Vectorized via Polars join_asof — was a per-date Python loop in the first
+    implementation; that became the training-time bottleneck on bigger spines
+    (~26k Polars filter ops × N layers). This rewrite is O(unique_dates ×
+    n_sources) but each op is a single C-level merge sort + join.
+    """
     fred_data: dict[str, pl.DataFrame] = {
         sid: _load_fred_series(fred_dir, sid) for sid in _FRED_COL_MAP
     }
@@ -150,39 +182,76 @@ def join_physical_ai_features(
         bucket: _load_patent_bucket(patents_dir, bucket) for bucket in _PATENT_COL_MAP
     }
 
-    # For each unique date, compute the 21 column values once, then join back to spine.
-    unique_dates = spine.select("date").unique().sort("date")["date"].to_list()
-    rows: list[dict] = []
-    for d in unique_dates:
-        row: dict = {"date": d}
-        # FRED
-        for series_id, (level_col, yoy_col) in _FRED_COL_MAP.items():
-            df = fred_data[series_id]
-            level = _value_at(df, d, "value", "date", _FRED_TOLERANCE_DAYS)
-            row[level_col] = level
-            if yoy_col is not None:
-                prior = _value_one_year_prior(df, d, "value", "date", _FRED_TOLERANCE_DAYS)
-                row[yoy_col] = _yoy(level, prior)
-        # JOLTS NAICS 333
-        jolts_level = _value_at(jolts, d, "value", "period_date", _FRED_TOLERANCE_DAYS)
-        jolts_prior = _value_one_year_prior(jolts, d, "value", "period_date", _FRED_TOLERANCE_DAYS)
-        row["phys_ai_machinery_jobs_level"] = jolts_level
-        row["phys_ai_machinery_jobs_yoy"] = _yoy(jolts_level, jolts_prior)
-        # Patents
-        for bucket, (count_col, yoy_col) in _PATENT_COL_MAP.items():
-            df = patent_data[bucket]
-            count = _value_at(df, d, "filing_count", "quarter_end", _PATENT_TOLERANCE_DAYS)
-            prior = _value_one_year_prior(df, d, "filing_count", "quarter_end", _PATENT_TOLERANCE_DAYS)
-            row[count_col] = float(count) if count is not None else None
-            row[yoy_col] = _yoy(
-                float(count) if count is not None else None,
-                float(prior) if prior is not None else None,
+    # Build query: unique sorted dates from spine, plus a "date - 365 days" column for yoy lookups.
+    query_dates = (
+        spine.select("date").unique().sort("date")
+        .with_columns(
+            (pl.col("date") - pl.duration(days=365)).cast(pl.Date).alias("_prior_date")
+        )
+    )
+    feature_df = query_dates.clone()
+
+    # ── FRED level + (optional) yoy ─────────────────────────────────────────
+    for series_id, (level_col, yoy_col) in _FRED_COL_MAP.items():
+        src = fred_data[series_id]
+        feature_df = _asof_join_level(
+            feature_df, "date", src, "date", "value", level_col, _FRED_TOLERANCE_DAYS
+        )
+        if yoy_col is not None:
+            feature_df = _asof_join_level(
+                feature_df, "_prior_date", src, "date", "value",
+                f"_{yoy_col}_prior", _FRED_TOLERANCE_DAYS,
             )
-        rows.append(row)
+            # yoy = (level - prior) / prior; null when prior is null or zero
+            feature_df = feature_df.with_columns(
+                pl.when((pl.col(f"_{yoy_col}_prior").is_null()) | (pl.col(f"_{yoy_col}_prior") == 0))
+                .then(None)
+                .otherwise(
+                    (pl.col(level_col) - pl.col(f"_{yoy_col}_prior"))
+                    / pl.col(f"_{yoy_col}_prior")
+                )
+                .alias(yoy_col)
+            ).drop(f"_{yoy_col}_prior")
 
-    schema = {"date": pl.Date}
-    for col in PHYSICAL_AI_FEATURE_COLS:
-        schema[col] = pl.Float64
-    feature_df = pl.DataFrame(rows, schema=schema)
+    # ── JOLTS NAICS 333 (level + yoy) ───────────────────────────────────────
+    feature_df = _asof_join_level(
+        feature_df, "date", jolts, "period_date", "value",
+        "phys_ai_machinery_jobs_level", _FRED_TOLERANCE_DAYS,
+    )
+    feature_df = _asof_join_level(
+        feature_df, "_prior_date", jolts, "period_date", "value",
+        "_jobs_prior", _FRED_TOLERANCE_DAYS,
+    )
+    feature_df = feature_df.with_columns(
+        pl.when((pl.col("_jobs_prior").is_null()) | (pl.col("_jobs_prior") == 0))
+        .then(None)
+        .otherwise(
+            (pl.col("phys_ai_machinery_jobs_level") - pl.col("_jobs_prior"))
+            / pl.col("_jobs_prior")
+        )
+        .alias("phys_ai_machinery_jobs_yoy")
+    ).drop("_jobs_prior")
 
+    # ── Patent buckets (count + yoy) ────────────────────────────────────────
+    for bucket, (count_col, yoy_col) in _PATENT_COL_MAP.items():
+        src = patent_data[bucket]
+        feature_df = _asof_join_level(
+            feature_df, "date", src, "quarter_end", "filing_count",
+            count_col, _PATENT_TOLERANCE_DAYS,
+        )
+        feature_df = _asof_join_level(
+            feature_df, "_prior_date", src, "quarter_end", "filing_count",
+            f"_{yoy_col}_prior", _PATENT_TOLERANCE_DAYS,
+        )
+        feature_df = feature_df.with_columns(
+            pl.when((pl.col(f"_{yoy_col}_prior").is_null()) | (pl.col(f"_{yoy_col}_prior") == 0))
+            .then(None)
+            .otherwise(
+                (pl.col(count_col) - pl.col(f"_{yoy_col}_prior"))
+                / pl.col(f"_{yoy_col}_prior")
+            )
+            .alias(yoy_col)
+        ).drop(f"_{yoy_col}_prior")
+
+    feature_df = feature_df.drop("_prior_date")
     return spine.join(feature_df, on="date", how="left")
