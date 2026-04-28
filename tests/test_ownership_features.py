@@ -122,13 +122,16 @@ def test_inst_net_shares_qoq_and_momentum_2q(tmp_path):
 
 
 def test_join_ownership_features_backward_asof(tmp_path):
-    """Backward asof join attaches most recent quarterly features to daily rows."""
+    """Backward asof join keys on available_date (NOT period_end) — point-in-time correct."""
     from processing.ownership_features import save_ownership_features, join_ownership_features
 
+    # Q3 13F: period ends 2023-09-30, last filer reports 2023-11-10 (within 45-day window)
+    # Q4 13F: period ends 2023-12-31, last filer reports 2024-02-10
     features = pl.DataFrame({
         "ticker":                  ["NVDA",               "NVDA"],
         "quarter":                 ["2023Q3",             "2023Q4"],
         "period_end":              [dt.date(2023, 9, 30), dt.date(2023, 12, 31)],
+        "available_date":          [dt.date(2023, 11, 10), dt.date(2024, 2, 10)],
         "inst_ownership_pct":      [60.0,                 80.0],
         "inst_net_shares_qoq":     [None,                 0.2],
         "inst_holder_count":       [1,                    2],
@@ -139,17 +142,61 @@ def test_join_ownership_features_backward_asof(tmp_path):
     features_dir = tmp_path / "features"
     save_ownership_features(features, features_dir)
 
-    # Training spine: one row in Q3 (after Sep 30) and one in Q4 (after Dec 31)
+    spine = pl.DataFrame({
+        "ticker": ["NVDA", "NVDA", "NVDA", "NVDA"],
+        "date":   [
+            dt.date(2023, 10, 15),  # PRE-Q3-filing (Q3 ends Sep 30, available Nov 10) → NULL
+            dt.date(2023, 11, 11),  # POST-Q3-filing → gets Q3 (60%)
+            dt.date(2024, 1, 10),   # POST-Q3, PRE-Q4-filing (Q4 available Feb 10) → still Q3 (60%)
+            dt.date(2024, 2, 15),   # POST-Q4-filing → gets Q4 (80%)
+        ],
+    })
+    result = join_ownership_features(spine, features_dir).sort("date")
+
+    # Pre-Q3-filing: lookahead would give 60%; correct is null
+    oct_row = result.filter(pl.col("date") == dt.date(2023, 10, 15))
+    assert oct_row["inst_ownership_pct"][0] is None, "lookahead bug: row before any filing should be null"
+
+    # Post-Q3-filing → Q3 ownership
+    nov_row = result.filter(pl.col("date") == dt.date(2023, 11, 11))
+    assert abs(nov_row["inst_ownership_pct"][0] - 60.0) < 0.01
+
+    # Between Q3 and Q4 availability → still Q3 (most recently available)
+    jan_row = result.filter(pl.col("date") == dt.date(2024, 1, 10))
+    assert abs(jan_row["inst_ownership_pct"][0] - 60.0) < 0.01
+
+    # Post-Q4-filing → Q4
+    feb_row = result.filter(pl.col("date") == dt.date(2024, 2, 15))
+    assert abs(feb_row["inst_ownership_pct"][0] - 80.0) < 0.01
+
+
+def test_join_ownership_features_legacy_parquet_fallback(tmp_path):
+    """Parquets without available_date (pre-v2 ingestion) fall back to period_end + 45d."""
+    from processing.ownership_features import save_ownership_features, join_ownership_features
+
+    # Legacy parquet: no available_date column → fallback should compute period_end + 45d
+    features = pl.DataFrame({
+        "ticker":                  ["NVDA"],
+        "quarter":                 ["2023Q3"],
+        "period_end":              [dt.date(2023, 9, 30)],
+        "inst_ownership_pct":      [60.0],
+        "inst_net_shares_qoq":     [None],
+        "inst_holder_count":       [1],
+        "inst_concentration_top10":[1.0],
+        "inst_momentum_2q":        [None],
+    })
+    features_dir = tmp_path / "features"
+    save_ownership_features(features, features_dir)
+
     spine = pl.DataFrame({
         "ticker": ["NVDA", "NVDA"],
-        "date":   [dt.date(2023, 10, 15), dt.date(2024, 1, 10)],
+        # 2023-10-15 < period_end + 45d (= 2023-11-14) → null
+        # 2023-11-20 > period_end + 45d → 60%
+        "date":   [dt.date(2023, 10, 15), dt.date(2023, 11, 20)],
     })
-    result = join_ownership_features(spine, features_dir)
+    result = join_ownership_features(spine, features_dir).sort("date")
 
-    # 2023-10-15 is after Q3 end (Sep 30) but before Q4 end → gets Q3 features (ownership=60%)
-    oct_row = result.filter(pl.col("date") == dt.date(2023, 10, 15))
-    assert abs(oct_row["inst_ownership_pct"][0] - 60.0) < 0.01
-
-    # 2024-01-10 is after Q4 end (Dec 31) → gets Q4 features (ownership=80%)
-    jan_row = result.filter(pl.col("date") == dt.date(2024, 1, 10))
-    assert abs(jan_row["inst_ownership_pct"][0] - 80.0) < 0.01
+    pre = result.filter(pl.col("date") == dt.date(2023, 10, 15))
+    assert pre["inst_ownership_pct"][0] is None, "fallback should treat avail as period_end + 45d"
+    post = result.filter(pl.col("date") == dt.date(2023, 11, 20))
+    assert abs(post["inst_ownership_pct"][0] - 60.0) < 0.01

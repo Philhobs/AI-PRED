@@ -83,6 +83,22 @@ def compute_ownership_features(
 
     raw = pl.concat([pl.read_parquet(p) for p in parquets])
 
+    # Backwards compat: raw parquets ingested before the available_date column
+    # was added (sec_13f_ingestion v2 onward) won't have it. Synthesize one as
+    # period_end + 45 days (SEC Rule 13f-1 max).
+    if "available_date" not in raw.columns:
+        raw = raw.with_columns(
+            (pl.col("period_end") + pl.duration(days=45)).cast(pl.Date).alias("available_date")
+        )
+    else:
+        # Fill any nulls with the same fallback rule.
+        raw = raw.with_columns(
+            pl.when(pl.col("available_date").is_null())
+            .then((pl.col("period_end") + pl.duration(days=45)).cast(pl.Date))
+            .otherwise(pl.col("available_date"))
+            .alias("available_date")
+        )
+
     if shares_map is None:
         shares_map = _load_shares_outstanding(ohlcv_dir)
 
@@ -91,13 +107,19 @@ def compute_ownership_features(
         "shares_outstanding": [int(v) for v in shares_map.values()],
     })
 
-    # Aggregate per (ticker, quarter, period_end)
+    # Aggregate per (ticker, quarter, period_end). available_date = the LATEST
+    # filer's filed date for that reporting quarter — this is when the
+    # aggregate becomes fully observable to the public. Using MAX (rather than
+    # MEAN/MEDIAN) is the conservative point-in-time choice: the aggregated
+    # ownership_pct is accurate only after every contributing filer has
+    # publicly disclosed their position.
     agg = (
         raw
         .group_by(["ticker", "quarter", "period_end"])
         .agg([
             pl.col("shares_held").sum().alias("total_inst_shares"),
             pl.col("cik").n_unique().alias("inst_holder_count"),
+            pl.col("available_date").max().alias("available_date"),
         ])
     )
 
@@ -155,7 +177,7 @@ def compute_ownership_features(
     ])
 
     return features.select([
-        "ticker", "quarter", "period_end",
+        "ticker", "quarter", "period_end", "available_date",
         "inst_ownership_pct", "inst_net_shares_qoq",
         pl.col("inst_holder_count").cast(pl.Int32),
         "inst_concentration_top10", "inst_momentum_2q",
@@ -176,8 +198,12 @@ def join_ownership_features(df: pl.DataFrame, features_dir: Path) -> pl.DataFram
     Backward-asof join ownership features onto training/inference DataFrame.
 
     For each (ticker, date) row in df, attaches the most recent quarterly
-    features where period_end <= date. Returns df with 5 new columns; nulls
-    where no historical data exists (LightGBM handles nulls natively).
+    features where available_date <= date. available_date is when the SEC
+    publicly published the slowest-filing constituent of the (ticker, quarter)
+    aggregate — using period_end here would be a 45-day lookahead.
+
+    Backwards compat: parquets generated before the available_date column was
+    added are treated as available_date = period_end + 45 days (Rule 13f-1 max).
 
     Same pattern as join_graph_features() in processing/graph_features.py.
     """
@@ -189,12 +215,24 @@ def join_ownership_features(df: pl.DataFrame, features_dir: Path) -> pl.DataFram
             df = df.with_columns(pl.lit(None).cast(dtype).alias(col))
         return df
 
+    raw = pl.concat([pl.read_parquet(p) for p in parquets])
+    if "available_date" not in raw.columns:
+        raw = raw.with_columns(
+            (pl.col("period_end") + pl.duration(days=45)).cast(pl.Date).alias("available_date")
+        )
+    else:
+        raw = raw.with_columns(
+            pl.when(pl.col("available_date").is_null())
+            .then((pl.col("period_end") + pl.duration(days=45)).cast(pl.Date))
+            .otherwise(pl.col("available_date"))
+            .alias("available_date")
+        )
+
     features = (
-        pl.concat([pl.read_parquet(p) for p in parquets])
-        .select(["ticker", "period_end"] + _FEATURE_COLS)
-        .sort(["ticker", "period_end"])
+        raw.select(["ticker", "available_date"] + _FEATURE_COLS)
+        .sort(["ticker", "available_date"])
     )
-    features_renamed = features.rename({"period_end": "ownership_date"})
+    features_renamed = features.rename({"available_date": "ownership_date"})
 
     result = df.sort(["ticker", "date"]).join_asof(
         features_renamed,

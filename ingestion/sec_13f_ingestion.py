@@ -38,11 +38,21 @@ _RAW_SCHEMA = pa.schema([
     pa.field("cik",                  pa.string()),
     pa.field("quarter",              pa.string()),
     pa.field("period_end",           pa.date32()),
+    # Public availability date — when the SEC published this 13F-HR. This is the
+    # only date a backtest may key on without lookahead. Filers have 45 days
+    # after period_end to file (Rule 13f-1), so available_date <= period_end
+    # would be unusual; available_date > period_end + 60d is also rare in modern
+    # filings.  When the EDGAR index lacks an entry for a CIK (very rare), we
+    # fall back to period_end + 45 days.
+    pa.field("available_date",       pa.date32()),
     pa.field("cusip",                pa.string()),
     pa.field("ticker",               pa.string()),
     pa.field("shares_held",          pa.int64()),
     pa.field("value_usd_thousands",  pa.int64()),
 ])
+
+# SEC Rule 13f-1: 45 days after end of calendar quarter.
+_FALLBACK_AVAILABLE_LAG_DAYS = 45
 
 
 # ── XML helpers ───────────────────────────────────────────────────────────────
@@ -372,11 +382,18 @@ def ingest_quarter(
     top_ciks = rank_filers_by_position_count(
         index_df, top_n=top_n, prior_quarter_dir=prior_quarter_dir
     )
-    # Keep first occurrence per CIK to handle rare duplicate index rows
+    # Keep first occurrence per CIK to handle rare duplicate index rows.
+    # filer_map: cik → filename; date_filed_map: cik → ISO date string from the
+    # EDGAR full-index. The latter feeds available_date for point-in-time joins.
     filer_map: dict[str, str] = {}
+    date_filed_map: dict[str, str] = {}
     for row in index_df.iter_rows(named=True):
         if row["cik"] in top_ciks and row["cik"] not in filer_map:
             filer_map[row["cik"]] = row["filename"]
+            date_filed_map[row["cik"]] = row["date_filed"]
+
+    period_end_date = dt.date.fromisoformat(period_end)
+    fallback_available = period_end_date + dt.timedelta(days=_FALLBACK_AVAILABLE_LAG_DAYS)
 
     total_rows = 0
     for i, cik in enumerate(top_ciks):
@@ -398,10 +415,18 @@ def ingest_quarter(
         if not rows:
             continue
 
+        # Resolve available_date once per filing: prefer EDGAR index date_filed,
+        # fall back to period_end + 45 days if missing/malformed.
+        try:
+            available_date = dt.date.fromisoformat(date_filed_map.get(cik, ""))
+        except ValueError:
+            available_date = fallback_available
+
         for row in rows:
-            row["cik"]        = cik
-            row["quarter"]    = reporting_quarter_str
-            row["period_end"] = dt.date.fromisoformat(period_end)
+            row["cik"]            = cik
+            row["quarter"]        = reporting_quarter_str
+            row["period_end"]     = period_end_date
+            row["available_date"] = available_date
 
         table = pa.Table.from_pylist(rows, schema=_RAW_SCHEMA)
         pq.write_table(table, str(out_path), compression="snappy")
