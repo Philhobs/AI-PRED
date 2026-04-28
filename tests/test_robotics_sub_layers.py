@@ -15,6 +15,8 @@ def test_medical_humanoid_membership_exact():
     from ingestion.ticker_registry import tickers_in_layer
     assert set(tickers_in_layer("robotics_medical_humanoid")) == {
         "ISRG", "TSLA", "1683.HK", "005380.KS",
+        # 2026-04-28: surgical robotics expansion
+        "SYK", "MDT", "GMED", "PRCT",
     }
 
 
@@ -22,6 +24,8 @@ def test_mcu_chips_membership_exact():
     from ingestion.ticker_registry import tickers_in_layer
     assert set(tickers_in_layer("robotics_mcu_chips")) == {
         "TXN", "MCHP", "ADI", "6723.T",
+        # 2026-04-28: MCU/sensor expansion
+        "ON", "NXPI", "MPWR",
     }
 
 

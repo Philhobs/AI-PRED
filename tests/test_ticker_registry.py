@@ -3,10 +3,9 @@
 
 def test_ticker_count():
     from ingestion.ticker_registry import TICKERS, TICKER_LAYERS
-    # 141 + 8 new robotics-pillar tickers (EMR, TSLA, 1683.HK, 005380.KS,
-    # TXN, MCHP, 6723.T, ADI) = 149.
-    assert len(TICKERS) == 165
-    assert len(TICKER_LAYERS) == 165
+    # 165 + 4 medical robotics (SYK/MDT/GMED/PRCT) + 25 breadth fills = 194.
+    assert len(TICKERS) == 194
+    assert len(TICKER_LAYERS) == 194
 
 
 def test_all_layers_present():
@@ -55,8 +54,8 @@ def test_cyber_pureplay_layer_populated():
     assert "cyber_pureplay" in LAYER_IDS
     assert LAYER_IDS["cyber_pureplay"] == 14   # was 12, shifted by robotics split
     tickers = tickers_in_layer("cyber_pureplay")
-    assert len(tickers) == 6   # +NET (Cloudflare)
-    for expected in ["CRWD", "ZS", "S", "DARK.L", "VRNS", "NET"]:
+    assert len(tickers) == 7   # +NET (Cloudflare), +VRSN (Verisign DNS)
+    for expected in ["CRWD", "ZS", "S", "DARK.L", "VRNS", "NET", "VRSN"]:
         assert expected in tickers, f"{expected} missing from cyber_pureplay"
 
 
@@ -65,8 +64,9 @@ def test_cyber_platform_layer_populated():
     assert "cyber_platform" in LAYER_IDS
     assert LAYER_IDS["cyber_platform"] == 15   # was 13, shifted by robotics split
     tickers = tickers_in_layer("cyber_platform")
-    assert len(tickers) == 9
-    for expected in ["PANW", "FTNT", "CHKP", "CYBR", "TENB", "QLYS", "OKTA", "AKAM", "RPD"]:
+    assert len(tickers) == 12   # +LDOS, +CACI, +BAH (federal cyber/IT)
+    for expected in ["PANW", "FTNT", "CHKP", "CYBR", "TENB", "QLYS", "OKTA", "AKAM", "RPD",
+                     "LDOS", "CACI", "BAH"]:
         assert expected in tickers, f"{expected} missing from cyber_platform"
 
 
@@ -123,8 +123,9 @@ def test_robotics_medical_humanoid_layer_populated():
     assert "robotics_medical_humanoid" in LAYER_IDS
     assert LAYER_IDS["robotics_medical_humanoid"] == 12
     mh = tickers_in_layer("robotics_medical_humanoid")
-    assert len(mh) == 4
-    assert set(mh) == {"ISRG", "TSLA", "1683.HK", "005380.KS"}
+    assert len(mh) == 8   # +SYK, +MDT, +GMED, +PRCT (surgical robotics)
+    assert set(mh) == {"ISRG", "TSLA", "1683.HK", "005380.KS",
+                       "SYK", "MDT", "GMED", "PRCT"}
 
 
 def test_robotics_mcu_chips_layer_populated():
@@ -132,8 +133,8 @@ def test_robotics_mcu_chips_layer_populated():
     assert "robotics_mcu_chips" in LAYER_IDS
     assert LAYER_IDS["robotics_mcu_chips"] == 13
     mcu = tickers_in_layer("robotics_mcu_chips")
-    assert len(mcu) == 4
-    assert set(mcu) == {"TXN", "MCHP", "6723.T", "ADI"}
+    assert len(mcu) == 7   # +ON, +NXPI, +MPWR
+    assert set(mcu) == {"TXN", "MCHP", "6723.T", "ADI", "ON", "NXPI", "MPWR"}
 
 
 def test_non_usd_tickers():
@@ -178,7 +179,7 @@ def test_power_layer_includes_cameco():
     from ingestion.ticker_registry import tickers_in_layer
     power = tickers_in_layer("power")
     assert "CCJ" in power
-    assert len(power) == 20   # was 19, +1
+    assert len(power) == 25   # was 20; +DUK, +AEP, +XEL, +LEU, +PLUG (utilities + uranium + fuel cells)
 
 
 def test_cooling_layer_includes_eaton():
