@@ -75,6 +75,11 @@ TICKERS_INFO: list[TickerInfo] = [
     TickerInfo("ERIC",      "networking",     "US", "USD", "SE"),
     TickerInfo("JNPR",      "networking",     "US", "USD", "US"),
     TickerInfo("SPT.L",     "networking",     "L",  "GBP", "GB"),
+    # 2026-04-28 networking expansion
+    TickerInfo("HLIT",      "networking",     "US", "USD", "US"),  # Harmonic — fiber/cable infra
+    TickerInfo("CALX",      "networking",     "US", "USD", "US"),  # Calix — broadband platform
+    TickerInfo("AAOI",      "networking",     "US", "USD", "US"),  # Applied Optoelectronics — DC transceivers
+    TickerInfo("EXTR",      "networking",     "US", "USD", "US"),  # Extreme Networks — cloud-managed switching
     # ── Layer 5: Servers / Storage / Systems (9) ──────────────────────────────
     TickerInfo("SMCI",      "servers",        "US", "USD", "US"),
     TickerInfo("DELL",      "servers",        "US", "USD", "US"),
@@ -85,6 +90,9 @@ TICKERS_INFO: list[TickerInfo] = [
     TickerInfo("WDC",       "servers",        "US", "USD", "US"),
     TickerInfo("6702.T",    "servers",        "T",  "JPY", "JP"),
     TickerInfo("KTN.DE",    "servers",        "DE", "EUR", "DE"),
+    # 2026-04-28 servers expansion
+    TickerInfo("CDW",       "servers",        "US", "USD", "US"),  # CDW — IT distributor / AI server reseller
+    TickerInfo("ARW",       "servers",        "US", "USD", "US"),  # Arrow Electronics — global distributor
     # ── Layer 6: Data Center Operators / REITs (8) ────────────────────────────
     TickerInfo("EQIX",      "datacenter",     "US", "USD", "US"),
     TickerInfo("DLR",       "datacenter",     "US", "USD", "US"),
@@ -94,6 +102,11 @@ TICKERS_INFO: list[TickerInfo] = [
     TickerInfo("APLD",      "datacenter",     "US", "USD", "US"),
     TickerInfo("9432.T",    "datacenter",     "T",  "JPY", "JP"),
     TickerInfo("CLNX.MC",   "datacenter",     "MC", "EUR", "ES"),
+    # 2026-04-28 datacenter expansion
+    TickerInfo("SBAC",      "datacenter",     "US", "USD", "US"),  # SBA Communications — cell towers
+    TickerInfo("DBRG",      "datacenter",     "US", "USD", "US"),  # DigitalBridge — DC infra investor
+    TickerInfo("GLW",       "datacenter",     "US", "USD", "US"),  # Corning — DC fiber + glass
+    TickerInfo("DOCN",      "datacenter",     "US", "USD", "US"),  # DigitalOcean — cloud infra
     # ── Layer 7: Power / Energy / Nuclear (20) ────────────────────────────────
     TickerInfo("CEG",       "power",          "US", "USD", "US"),
     TickerInfo("CCJ",       "power",          "US", "USD", "CA"),  # Cameco — uranium fuel cycle
@@ -115,6 +128,12 @@ TICKERS_INFO: list[TickerInfo] = [
     TickerInfo("ENEL.MI",   "power",          "MI", "EUR", "IT"),
     TickerInfo("ORSTED.CO", "power",          "CO", "DKK", "DK"),
     TickerInfo("ENGI.PA",   "power",          "PA", "EUR", "FR"),
+    # 2026-04-28 power expansion (regulated utilities + uranium fuel + fuel cells)
+    TickerInfo("DUK",       "power",          "US", "USD", "US"),  # Duke Energy
+    TickerInfo("AEP",       "power",          "US", "USD", "US"),  # American Electric Power
+    TickerInfo("XEL",       "power",          "US", "USD", "US"),  # Xcel Energy — MSFT DC region
+    TickerInfo("LEU",       "power",          "US", "USD", "US"),  # Centrus Energy — uranium enrichment
+    TickerInfo("PLUG",      "power",          "US", "USD", "US"),  # Plug Power — fuel cells
     # ── Layer 8: Cooling / Facilities / Backup Power (11) ─────────────────────
     TickerInfo("VRT",       "cooling",        "US", "USD", "US"),
     TickerInfo("ETN",       "cooling",        "US", "USD", "IE"),  # Eaton — DC electrical equipment
@@ -138,6 +157,10 @@ TICKERS_INFO: list[TickerInfo] = [
     TickerInfo("NEX.PA",    "grid",           "PA", "EUR", "FR"),
     TickerInfo("NG.L",      "grid",           "L",  "GBP", "GB"),
     TickerInfo("TRN.MI",    "grid",           "MI", "EUR", "IT"),
+    # 2026-04-28 grid expansion (E&C contractors building DC + transmission)
+    TickerInfo("FLR",       "grid",           "US", "USD", "US"),  # Fluor — large E&C
+    TickerInfo("ACM",       "grid",           "US", "USD", "US"),  # AECOM — engineering
+    TickerInfo("KBR",       "grid",           "US", "USD", "US"),  # KBR Inc — engineering services
     # ── Layer 10: Metals / Materials (12) ─────────────────────────────────────
     TickerInfo("FCX",       "metals",         "US", "USD", "US"),
     TickerInfo("SCCO",      "metals",         "US", "USD", "US"),
@@ -168,11 +191,20 @@ TICKERS_INFO: list[TickerInfo] = [
     TickerInfo("TSLA",      "robotics_medical_humanoid", "US", "USD", "US"),
     TickerInfo("1683.HK",   "robotics_medical_humanoid", "HK", "HKD", "HK"),
     TickerInfo("005380.KS", "robotics_medical_humanoid", "KS", "KRW", "KR"),
+    # 2026-04-28: medical-robotics expansion (broaden the layer beyond humanoid-only)
+    TickerInfo("SYK",       "robotics_medical_humanoid", "US", "USD", "US"),  # Stryker — Mako ortho
+    TickerInfo("MDT",       "robotics_medical_humanoid", "US", "USD", "US"),  # Medtronic — Hugo surgical
+    TickerInfo("GMED",      "robotics_medical_humanoid", "US", "USD", "US"),  # Globus Medical — ExcelsiusGPS
+    TickerInfo("PRCT",      "robotics_medical_humanoid", "US", "USD", "US"),  # PROCEPT BioRobotics — AquaBeam
     # ── Layer 13: Robotics — MCU & Sensor Chips (4) ──────────────────────────────
     TickerInfo("TXN",       "robotics_mcu_chips",        "US", "USD", "US"),
     TickerInfo("MCHP",      "robotics_mcu_chips",        "US", "USD", "US"),
     TickerInfo("ADI",       "robotics_mcu_chips",        "US", "USD", "US"),
     TickerInfo("6723.T",    "robotics_mcu_chips",        "T",  "JPY", "JP"),
+    # 2026-04-28 mcu/sensor expansion
+    TickerInfo("ON",        "robotics_mcu_chips",        "US", "USD", "US"),  # onsemi — power MCU
+    TickerInfo("NXPI",      "robotics_mcu_chips",        "US", "USD", "NL"),  # NXP — automotive/industrial MCU
+    TickerInfo("MPWR",      "robotics_mcu_chips",        "US", "USD", "US"),  # Monolithic Power — DC-DC for robots
     # ── Layer 14: AI Cybersecurity — Pure Plays (6) ───────────────────────────────
     TickerInfo("CRWD",   "cyber_pureplay", "US", "USD", "US"),
     TickerInfo("ZS",     "cyber_pureplay", "US", "USD", "US"),
@@ -180,6 +212,8 @@ TICKERS_INFO: list[TickerInfo] = [
     TickerInfo("DARK.L", "cyber_pureplay", "L",  "GBP", "GB"),
     TickerInfo("VRNS",   "cyber_pureplay", "US", "USD", "US"),
     TickerInfo("NET",    "cyber_pureplay", "US", "USD", "US"),  # Cloudflare — edge security + AI Workers
+    # 2026-04-28 cyber_pureplay expansion
+    TickerInfo("VRSN",   "cyber_pureplay", "US", "USD", "US"),  # Verisign — DNS critical infra (.com/.net)
     # ── Layer 15: AI Cybersecurity — Platform Vendors (9) ─────────────────────────
     TickerInfo("PANW",   "cyber_platform", "US", "USD", "US"),
     TickerInfo("FTNT",   "cyber_platform", "US", "USD", "US"),
@@ -190,6 +224,10 @@ TICKERS_INFO: list[TickerInfo] = [
     TickerInfo("OKTA",   "cyber_platform", "US", "USD", "US"),
     TickerInfo("AKAM",   "cyber_platform", "US", "USD", "US"),
     TickerInfo("RPD",    "cyber_platform", "US", "USD", "US"),
+    # 2026-04-28 cyber_platform expansion (federal cyber + IT services)
+    TickerInfo("LDOS",   "cyber_platform", "US", "USD", "US"),  # Leidos — federal cyber/IT
+    TickerInfo("CACI",   "cyber_platform", "US", "USD", "US"),  # CACI International — defense IT
+    TickerInfo("BAH",    "cyber_platform", "US", "USD", "US"),  # Booz Allen Hamilton — federal cyber consulting
     # ── Layer 16: Enterprise SaaS / Agentic Software (11) ─────────────────────────
     TickerInfo("PLTR",   "enterprise_saas", "US", "USD", "US"),  # Palantir — govt + commercial AI OS
     TickerInfo("NOW",    "enterprise_saas", "US", "USD", "US"),  # ServiceNow
@@ -286,6 +324,16 @@ def layers() -> list[str]:
 def non_usd_tickers() -> list[str]:
     """Return sorted list of tickers that trade in non-USD currencies."""
     return sorted(t.symbol for t in TICKERS_INFO if t.currency != "USD")
+
+
+def us_listed_tickers() -> list[str]:
+    """Return sorted list of tickers listed on US exchanges (incl. ADRs).
+
+    Use this when calling US-only data sources (FINRA short volume, US earnings
+    calendars, EDGAR filings keyed by symbol). Foreign-listed equities like
+    SAP.DE or 6954.T are excluded because the source has no coverage for them.
+    """
+    return sorted(t.symbol for t in TICKERS_INFO if t.exchange == "US")
 
 
 def ticker_currency(symbol: str) -> str:

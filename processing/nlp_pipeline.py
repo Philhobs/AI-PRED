@@ -56,11 +56,15 @@ class FinBERTScorer:
 
     def score_articles_from_parquet(
         self,
-        input_path: str,
+        input_path: str | list[str],
         output_dir: Path,
         text_column: str = "content_snippet",
     ):
-        """Score all articles in a Parquet glob and write scored output."""
+        """Score all articles in a Parquet glob (or list of globs) and write scored output.
+
+        Pass a list to score multiple sources (e.g. RSS + GDELT) in a single
+        write. DuckDB's read_parquet accepts a list and unions the files.
+        """
         df = duckdb.read_parquet(input_path).fetchdf()
         texts = df[text_column].fillna("").tolist()
         scores = self.score_batch(texts)
@@ -121,13 +125,18 @@ if __name__ == "__main__":
     from dotenv import load_dotenv
     load_dotenv()
 
-    print("[NLP] Loading FinBERT model (first run downloads ~440MB)...")
-    scorer = FinBERTScorer()
-
-    input_glob = "data/raw/news/rss/date=*/data.parquet"
-    parquet_files = glob.glob(input_glob)
-
+    # Score RSS + GDELT together. EDGAR full-text hits are not yet persisted
+    # (see _planning_seed_sentiment_coverage.md gap #2); add their glob here
+    # once that lands.
+    input_globs = [
+        "data/raw/news/rss/date=*/data.parquet",
+        "data/raw/news/gdelt/date=*/data.parquet",
+    ]
+    parquet_files = [f for g in input_globs for f in glob.glob(g)]
     if not parquet_files:
-        print("[NLP] No RSS news parquet files found. Run news_ingestion.py first.")
+        print("[NLP] No RSS or GDELT news parquet files found. Run news_ingestion.py first.")
     else:
-        scorer.score_articles_from_parquet(input_glob, Path("data/raw"))
+        print(f"[NLP] Found {len(parquet_files)} news parquet files across {len(input_globs)} sources.")
+        print("[NLP] Loading FinBERT model (first run downloads ~440MB)...")
+        scorer = FinBERTScorer()
+        scorer.score_articles_from_parquet(input_globs, Path("data/raw"))

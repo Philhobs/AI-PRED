@@ -321,6 +321,77 @@ def test_train_all_layers_creates_horizon_artifact_dirs(tmp_path):
     assert len(flat_artifacts) == 0, "Found flat-layout artifacts; expected horizon_{tag}/ subdirs"
 
 
+def test_train_all_layers_skips_completed_pairs_by_default(tmp_path, monkeypatch):
+    """A second run leaves existing artifacts alone — train_single_layer is not re-invoked."""
+    ohlcv_dir = tmp_path / "financials" / "ohlcv"
+    fund_dir = tmp_path / "financials" / "fundamentals"
+    artifacts_dir = tmp_path / "artifacts"
+    _write_ohlcv_fixture(ohlcv_dir, TICKERS_FIXTURE, N_DAYS)
+    _write_fundamentals_fixture(fund_dir, TICKERS_FIXTURE)
+
+    from models import train as train_module
+    train_module.train_all_layers(
+        ohlcv_dir, fund_dir, artifacts_dir,
+        horizon_tag="5d",
+        lgbm_params=_LGBM_TEST, rf_params=_RF_TEST,
+    )
+    completed = [d for d in artifacts_dir.glob("layer_*/horizon_5d") if (d / "ensemble_weights.json").exists()]
+    assert len(completed) >= 1, "First run should have produced at least one trained pair"
+
+    # Second run: train_single_layer must NOT be called for any of the already-completed pairs
+    call_count = {"n": 0}
+    real_train_single = train_module.train_single_layer
+
+    def counting_train_single(*args, **kwargs):
+        call_count["n"] += 1
+        return real_train_single(*args, **kwargs)
+
+    monkeypatch.setattr(train_module, "train_single_layer", counting_train_single)
+    train_module.train_all_layers(
+        ohlcv_dir, fund_dir, artifacts_dir,
+        horizon_tag="5d",
+        lgbm_params=_LGBM_TEST, rf_params=_RF_TEST,
+    )
+    assert call_count["n"] == 0, (
+        f"Expected resume to skip already-trained pairs but train_single_layer was called {call_count['n']} times"
+    )
+
+
+def test_train_all_layers_force_flag_retrains_completed_pairs(tmp_path, monkeypatch):
+    """force=True bypasses the resume check and retrains every pair."""
+    ohlcv_dir = tmp_path / "financials" / "ohlcv"
+    fund_dir = tmp_path / "financials" / "fundamentals"
+    artifacts_dir = tmp_path / "artifacts"
+    _write_ohlcv_fixture(ohlcv_dir, TICKERS_FIXTURE, N_DAYS)
+    _write_fundamentals_fixture(fund_dir, TICKERS_FIXTURE)
+
+    from models import train as train_module
+    train_module.train_all_layers(
+        ohlcv_dir, fund_dir, artifacts_dir,
+        horizon_tag="5d",
+        lgbm_params=_LGBM_TEST, rf_params=_RF_TEST,
+    )
+    n_completed = len([d for d in artifacts_dir.glob("layer_*/horizon_5d") if (d / "ensemble_weights.json").exists()])
+    assert n_completed >= 1
+
+    call_count = {"n": 0}
+    real_train_single = train_module.train_single_layer
+
+    def counting_train_single(*args, **kwargs):
+        call_count["n"] += 1
+        return real_train_single(*args, **kwargs)
+
+    monkeypatch.setattr(train_module, "train_single_layer", counting_train_single)
+    train_module.train_all_layers(
+        ohlcv_dir, fund_dir, artifacts_dir,
+        horizon_tag="5d", force=True,
+        lgbm_params=_LGBM_TEST, rf_params=_RF_TEST,
+    )
+    assert call_count["n"] == n_completed, (
+        f"force=True should retrain all {n_completed} previously-completed pairs, got {call_count['n']}"
+    )
+
+
 def test_train_all_layers_skips_horizon_with_insufficient_labeled_rows(tmp_path):
     """With only 300 rows, 756d horizon is skipped (0 labeled rows < 100 threshold)."""
     ohlcv_dir = tmp_path / "financials" / "ohlcv"

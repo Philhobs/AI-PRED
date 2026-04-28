@@ -135,11 +135,85 @@ _STATIC_CUSIP_MAP: dict[str, str] = {
     "ADBE":  "00724F101",  # Adobe Inc
     "INTU":  "461202103",  # Intuit Inc
     "DDOG":  "23804L103",  # Datadog Inc Class A
-    "SNOW":  "833445105",  # Snowflake Inc Class A
-    "GTLB":  "376372102",  # GitLab Inc Class A
+    "SNOW":  "833445109",  # Snowflake Inc Class A (corrected 2026-04-27 — was 833445105, wrong check digit)
+    "GTLB":  "37637K108",  # GitLab Inc Class A (corrected 2026-04-27 — was 376372102)
     "PATH":  "90364P105",  # UiPath Inc Class A
-    "TEAM":  "G06242104",  # Atlassian Corporation Plc Class A (UK-incorporated)
-    "MNDY":  "M75158109",  # monday.com Ltd (Israel-incorporated)
+    "TEAM":  "049468101",  # Atlassian Corporation (corrected 2026-04-27 — was G06242104, the pre-reorg Bermuda CUSIP; current US-listed entity uses 049468101)
+    "MNDY":  "M7S64H106",  # monday.com Ltd (corrected 2026-04-27 — was M75158109, typo)
+    # ── 2026-04-27 layer 11-15 coverage (discovered via tools/discover_cusips.py) ──
+    # Layer 11 robotics_industrial
+    "ROK":   "773903109",  # Rockwell Automation Inc
+    "ZBRA":  "989207105",  # Zebra Technologies Corp
+    "CGNX":  "192422103",  # Cognex Corp
+    "SYM":   "87151X101",  # Symbotic Inc
+    "EMR":   "291011104",  # Emerson Electric Co
+    # Layer 12 robotics_medical_humanoid
+    "ISRG":  "46120E602",  # Intuitive Surgical Inc
+    "TSLA":  "88160R101",  # Tesla Inc
+    # Layer 13 robotics_mcu_chips
+    "TXN":   "882508104",  # Texas Instruments Inc
+    "MCHP":  "595017104",  # Microchip Technology Inc
+    "ADI":   "032654105",  # Analog Devices Inc
+    # Layer 14 cyber_pureplay
+    "CRWD":  "22788C105",  # CrowdStrike Holdings Inc
+    "ZS":    "98980G102",  # Zscaler Inc
+    "S":     "81730H109",  # SentinelOne Inc
+    # Layer 15 cyber_platform
+    "PANW":  "697435105",  # Palo Alto Networks Inc
+    "FTNT":  "34959E109",  # Fortinet Inc
+    "CHKP":  "M22465104",  # Check Point Software (Israel-incorporated)
+    "CYBR":  "M2682V108",  # CyberArk Software (Israel-incorporated)
+    "TENB":  "88025T102",  # Tenable Holdings
+    "QLYS":  "74758T303",  # Qualys Inc
+    "OKTA":  "679295105",  # Okta Inc
+    "AKAM":  "00971T101",  # Akamai Technologies
+    "RPD":   "753422104",  # Rapid7 Inc
+    "VRNS":  "922280102",  # Varonis Systems Inc
+    # Networking ADRs
+    "STM":   "861012102",  # STMicroelectronics ADR
+    "ERIC":  "294821608",  # Telefonaktiebolaget LM Ericsson ADR
+    # JNPR (Juniper Networks) intentionally omitted — acquired by HPE July 2025,
+    # delisted, and absent from current 13F filings. Remove from registry next
+    # session if its OHLCV dries up.
+    # ── 2026-04-28 medical-robotics expansion ────────────────────────────────
+    "SYK":   "863667101",  # Stryker Corp — Mako orthopedic robot
+    "MDT":   "G5960L103",  # Medtronic plc (Ireland-incorporated) — Hugo surgical
+    "GMED":  "379577208",  # Globus Medical — ExcelsiusGPS
+    "PRCT":  "74276L105",  # PROCEPT BioRobotics — AquaBeam
+    # ── 2026-04-28 layer-breadth expansion (25 tickers, 8 layers) ────────────
+    # Networking
+    "HLIT":  "413160102",  # Harmonic Inc
+    "CALX":  "13100M509",  # Calix Inc
+    "AAOI":  "03823U102",  # Applied Optoelectronics
+    "EXTR":  "30226D106",  # Extreme Networks
+    # Servers
+    "CDW":   "12514G108",  # CDW Corp
+    "ARW":   "042735100",  # Arrow Electronics
+    # Datacenter
+    "SBAC":  "78410G104",  # SBA Communications
+    "DBRG":  "25401T603",  # DigitalBridge Group
+    "GLW":   "219350105",  # Corning Inc
+    "DOCN":  "25402D102",  # DigitalOcean Holdings
+    # Power
+    "DUK":   "26441C204",  # Duke Energy
+    "AEP":   "025537101",  # American Electric Power
+    "XEL":   "98389B100",  # Xcel Energy
+    "LEU":   "15643U104",  # Centrus Energy
+    "PLUG":  "72919P202",  # Plug Power
+    # Grid / E&C
+    "FLR":   "343412102",  # Fluor Corp
+    "ACM":   "00766T100",  # AECOM
+    "KBR":   "48242W106",  # KBR Inc
+    # Cyber pureplay
+    "VRSN":  "92343E102",  # Verisign — DNS infra
+    # Cyber platform
+    "LDOS":  "525327102",  # Leidos Holdings
+    "CACI":  "127190304",  # CACI International
+    "BAH":   "099502106",  # Booz Allen Hamilton
+    # Robotics MCU/sensor chips
+    "ON":    "682189105",  # onsemi
+    "NXPI":  "N6596X109",  # NXP Semiconductors NV (Netherlands-incorporated)
+    "MPWR":  "609839105",  # Monolithic Power Systems
     # Foreign exchanges (000660.KS SK Hynix, 005930.KS Samsung) intentionally
     # omitted: 13F-HR covers US securities only; KRX-listed equities don't
     # appear in US institutional holdings filings.

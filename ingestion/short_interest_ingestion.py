@@ -106,12 +106,13 @@ def save_short_interest(df: pl.DataFrame, output_dir: Path) -> None:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    from ingestion.insider_trading_ingestion import CIK_MAP
+    from ingestion.ticker_registry import us_listed_tickers
 
     project_root = Path(__file__).parent.parent
     output_dir = project_root / "data" / "raw" / "financials" / "short_interest"
 
-    tickers = list(CIK_MAP.keys())
+    # FINRA only covers US-listed equities; foreign-listed symbols are skipped.
+    tickers = us_listed_tickers()
     _LOG.info("Fetching FINRA short sale volume for %d tickers...", len(tickers))
     df = fetch_short_interest(tickers, days_back=365)
     _LOG.info("Fetched %d rows for %d tickers", len(df), df["ticker"].n_unique() if len(df) > 0 else 0)

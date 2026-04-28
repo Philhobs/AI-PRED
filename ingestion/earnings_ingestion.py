@@ -98,12 +98,14 @@ def save_earnings_surprises(df: pl.DataFrame, output_dir: Path) -> None:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    from ingestion.insider_trading_ingestion import CIK_MAP
+    from ingestion.ticker_registry import TICKERS
 
     project_root = Path(__file__).parent.parent
     output_dir = project_root / "data" / "raw" / "financials" / "earnings"
 
-    tickers = list(CIK_MAP.keys())
+    # yfinance earnings cover most foreign listings too, so use the full registry
+    # rather than restricting to US-listed.
+    tickers = TICKERS
     _LOG.info("Fetching earnings surprises for %d tickers...", len(tickers))
     df = fetch_earnings_surprises(tickers)
     _LOG.info("Fetched %d rows for %d tickers", len(df), df["ticker"].n_unique() if len(df) > 0 else 0)

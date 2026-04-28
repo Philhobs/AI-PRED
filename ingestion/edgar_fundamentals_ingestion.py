@@ -132,6 +132,75 @@ CIK_MAP: dict[str, str] = {
     "TEAM":  "0001650372",   # Atlassian
     "PATH":  "0001734722",   # UiPath
     "MNDY":  "0001845338",   # Monday.com
+    # ── 2026-04-27 watchlist coverage gap fill (looked up via SEC company_tickers.json) ──
+    "ADI":   "0000006281",   # Analog Devices
+    "AKAM":  "0001086222",   # Akamai Technologies
+    "ARM":   "0001973239",   # Arm Holdings ADR
+    "CGNX":  "0000851205",   # Cognex Corp
+    "CHKP":  "0001015922",   # Check Point Software
+    "CRWD":  "0001535527",   # CrowdStrike Holdings
+    "EMR":   "0000032604",   # Emerson Electric
+    "ERIC":  "0000717826",   # Ericsson ADR
+    "FTNT":  "0001262039",   # Fortinet
+    "IREN":  "0001878848",   # Iris Energy
+    "ISRG":  "0001035267",   # Intuitive Surgical
+    "MCHP":  "0000827054",   # Microchip Technology
+    "NOK":   "0000924613",   # Nokia ADR
+    "OKTA":  "0001660134",   # Okta
+    "PANW":  "0001327567",   # Palo Alto Networks
+    "QLYS":  "0001107843",   # Qualys
+    "ROK":   "0001024478",   # Rockwell Automation
+    "RPD":   "0001560327",   # Rapid7
+    "S":     "0001583708",   # SentinelOne
+    "STM":   "0000932787",   # STMicroelectronics ADR
+    "SYM":   "0001837240",   # Symbotic
+    "TENB":  "0001660280",   # Tenable Holdings
+    "TSLA":  "0001318605",   # Tesla
+    "TXN":   "0000097476",   # Texas Instruments
+    "VRNS":  "0001361113",   # Varonis Systems
+    "ZBRA":  "0000877212",   # Zebra Technologies
+    "ZS":    "0001713683",   # Zscaler
+    # CYBR (CyberArk) and JNPR (Juniper, acquired by HPE 2025) are not in
+    # SEC company_tickers.json. Add manually if they reappear.
+    # ── 2026-04-28 medical-robotics expansion ────────────────────────────────
+    "SYK":   "0000310764",   # Stryker Corp — Mako ortho robot
+    "MDT":   "0001613103",   # Medtronic plc — Hugo surgical
+    "GMED":  "0001237831",   # Globus Medical — ExcelsiusGPS spine
+    "PRCT":  "0001588978",   # PROCEPT BioRobotics — AquaBeam
+    # ── 2026-04-28 layer-breadth expansion (25 tickers across 8 layers) ──────
+    # Networking
+    "HLIT":  "0000851310",   # Harmonic
+    "CALX":  "0001406666",   # Calix
+    "AAOI":  "0001158114",   # Applied Optoelectronics
+    "EXTR":  "0001078271",   # Extreme Networks
+    # Servers
+    "CDW":   "0001402057",   # CDW Corp
+    "ARW":   "0000007536",   # Arrow Electronics
+    # Datacenter
+    "SBAC":  "0001034054",   # SBA Communications
+    "DBRG":  "0001679688",   # DigitalBridge
+    "GLW":   "0000024741",   # Corning
+    "DOCN":  "0001582961",   # DigitalOcean
+    # Power
+    "DUK":   "0001326160",   # Duke Energy
+    "AEP":   "0000004904",   # American Electric Power
+    "XEL":   "0000072903",   # Xcel Energy
+    "LEU":   "0001065059",   # Centrus Energy
+    "PLUG":  "0001093691",   # Plug Power
+    # Grid
+    "FLR":   "0001124198",   # Fluor
+    "ACM":   "0000868857",   # AECOM
+    "KBR":   "0001357615",   # KBR Inc
+    # Cyber pureplay
+    "VRSN":  "0001014473",   # Verisign — DNS infra
+    # Cyber platform
+    "LDOS":  "0001336920",   # Leidos
+    "CACI":  "0000016058",   # CACI International
+    "BAH":   "0001443646",   # Booz Allen Hamilton
+    # Robotics MCU/sensor chips
+    "ON":    "0001097864",   # onsemi
+    "NXPI":  "0001413447",   # NXP Semiconductors
+    "MPWR":  "0001280452",   # Monolithic Power Systems
 }
 
 ANNUAL_FILERS: set[str] = {"TSM", "ASML", "NOK", "ARM"}

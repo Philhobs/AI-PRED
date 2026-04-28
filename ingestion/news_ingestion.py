@@ -126,6 +126,93 @@ TICKER_ALIASES: dict[str, list[str]] = {
     "MP":    ["MP Materials", "rare earth", "MP"],
     "UUUU":  ["Energy Fuels", "UUUU"],
     "ECL":   ["Ecolab", "ECL"],
+    # ── 2026-04-27 layer 11-16 + ADR aliases ────────────────────────────────
+    # Layer 11 robotics_industrial
+    "ROK":   ["Rockwell Automation", "Rockwell", "ROK"],
+    "ZBRA":  ["Zebra Technologies", "Zebra Tech", "ZBRA"],
+    "CGNX":  ["Cognex", "CGNX"],
+    "SYM":   ["Symbotic", "SYM"],
+    "EMR":   ["Emerson Electric", "Emerson", "EMR"],
+    # Layer 12 robotics_medical_humanoid
+    "ISRG":  ["Intuitive Surgical", "da Vinci surgical", "ISRG"],
+    "TSLA":  ["Tesla", "Optimus robot", "TSLA"],
+    # Layer 13 robotics_mcu_chips
+    "TXN":   ["Texas Instruments", "TXN"],
+    "MCHP":  ["Microchip Technology", "Microchip", "MCHP"],
+    "ADI":   ["Analog Devices", "ADI"],
+    # Layer 14 cyber_pureplay
+    "CRWD":  ["CrowdStrike", "Falcon platform", "CRWD"],
+    "ZS":    ["Zscaler", "ZS"],
+    "S":     ["SentinelOne", "Sentinel One", "Singularity platform"],
+    # Layer 15 cyber_platform
+    "PANW":  ["Palo Alto Networks", "Palo Alto Nets", "Cortex XSIAM", "PANW"],
+    "FTNT":  ["Fortinet", "FortiGate", "FTNT"],
+    "CHKP":  ["Check Point Software", "Check Point", "CHKP"],
+    "CYBR":  ["CyberArk", "CYBR"],
+    "TENB":  ["Tenable", "TENB"],
+    "QLYS":  ["Qualys", "QLYS"],
+    "OKTA":  ["Okta", "OKTA"],
+    "AKAM":  ["Akamai", "AKAM"],
+    "RPD":   ["Rapid7", "Rapid 7", "RPD"],
+    "VRNS":  ["Varonis", "VRNS"],
+    # Layer 16 enterprise_saas
+    "PLTR":  ["Palantir", "Foundry", "AIP", "PLTR"],
+    "NOW":   ["ServiceNow", "Now Platform"],
+    "CRM":   ["Salesforce", "Agentforce", "Slack acquisition", "CRM"],
+    "ADBE":  ["Adobe", "Firefly", "Photoshop AI", "ADBE"],
+    "INTU":  ["Intuit", "TurboTax AI", "QuickBooks AI", "INTU"],
+    "DDOG":  ["Datadog", "DDOG"],
+    "SNOW":  ["Snowflake", "Cortex AI", "SNOW"],
+    "GTLB":  ["GitLab", "GTLB"],
+    "TEAM":  ["Atlassian", "Jira AI", "Rovo", "TEAM"],
+    "PATH":  ["UiPath", "PATH"],
+    "MNDY":  ["Monday.com", "monday.com", "MNDY"],
+    # Other US-listed
+    "NET":   ["Cloudflare", "NET"],
+    "ETN":   ["Eaton", "Eaton Corp", "ETN"],
+    "CCJ":   ["Cameco", "CCJ"],
+    # ADRs / foreign issuers commonly mentioned in English news
+    "STM":   ["STMicroelectronics", "ST Micro", "STM"],
+    "ERIC":  ["Ericsson", "Telefonaktiebolaget LM Ericsson", "ERIC"],
+    # ── 2026-04-28 medical robotics expansion ───────────────────────────────
+    "SYK":   ["Stryker", "Mako robot", "Mako system", "SYK"],
+    "MDT":   ["Medtronic", "Hugo robotic", "Hugo RAS", "MDT"],
+    "GMED":  ["Globus Medical", "ExcelsiusGPS", "Excelsius surgical", "GMED"],
+    "PRCT":  ["PROCEPT BioRobotics", "PROCEPT", "AquaBeam", "Aquablation", "PRCT"],
+    # ── 2026-04-28 layer-breadth expansion ──────────────────────────────────
+    # Networking
+    "HLIT":  ["Harmonic Inc", "HLIT"],
+    "CALX":  ["Calix Inc", "Calix broadband", "CALX"],
+    "AAOI":  ["Applied Optoelectronics", "AAOI"],
+    "EXTR":  ["Extreme Networks", "EXTR"],
+    # Servers
+    "CDW":   ["CDW Corp", "CDW"],
+    "ARW":   ["Arrow Electronics", "ARW"],
+    # Datacenter
+    "SBAC":  ["SBA Communications", "SBAC"],
+    "DBRG":  ["DigitalBridge", "Digital Bridge", "DBRG"],
+    "GLW":   ["Corning", "Corning Glass", "GLW"],
+    "DOCN":  ["DigitalOcean", "Digital Ocean cloud", "DOCN"],
+    # Power
+    "DUK":   ["Duke Energy", "DUK"],
+    "AEP":   ["American Electric Power", "AEP"],
+    "XEL":   ["Xcel Energy", "Xcel"],
+    "LEU":   ["Centrus Energy", "Centrus", "uranium enrichment", "LEU"],
+    "PLUG":  ["Plug Power", "PLUG"],
+    # Grid
+    "FLR":   ["Fluor Corp", "Fluor"],
+    "ACM":   ["AECOM", "ACM"],
+    "KBR":   ["KBR Inc", "KBR"],
+    # Cyber pureplay
+    "VRSN":  ["Verisign", "VRSN"],
+    # Cyber platform
+    "LDOS":  ["Leidos", "LDOS"],
+    "CACI":  ["CACI International", "CACI"],
+    "BAH":   ["Booz Allen Hamilton", "Booz Allen", "BAH"],
+    # Robotics MCU/sensor chips
+    "ON":    ["onsemi", "ON Semiconductor"],
+    "NXPI":  ["NXP Semiconductors", "NXP Semi", "NXPI"],
+    "MPWR":  ["Monolithic Power Systems", "Monolithic Power", "MPWR"],
 }
 
 # Pre-compiled patterns keyed by ticker — avoids recompiling on every article
@@ -272,10 +359,14 @@ def scrape_rss_feeds(output_dir: Path):
         pq.write_table(table, path, compression="snappy")
 
 
+_SEC_HEADERS = {"User-Agent": "ai-infra-predictor research@example.com"}
+
+
 def search_edgar_fulltext(query: str, form_type: str = "8-K", days_back: int = 7) -> list[dict]:
     """
     Search SEC EDGAR full-text for financial signals.
-    Free API, no key required.
+    Free API, no key required — but SEC fair-use requires a descriptive User-Agent
+    or the request returns 403 Forbidden.
     """
     start_date = (datetime.now(timezone.utc) - timedelta(days=days_back)).strftime("%Y-%m-%d")
 
@@ -288,7 +379,7 @@ def search_edgar_fulltext(query: str, form_type: str = "8-K", days_back: int = 7
         "_source": "file_date,entity_name,file_num,period_of_report,form_type",
     }
 
-    resp = requests.get(url, params=params, timeout=30)
+    resp = requests.get(url, params=params, headers=_SEC_HEADERS, timeout=30)
     resp.raise_for_status()
     return resp.json().get("hits", {}).get("hits", [])
 
@@ -297,16 +388,34 @@ if __name__ == "__main__":
     from dotenv import load_dotenv
     load_dotenv()
 
+    import argparse
+    parser = argparse.ArgumentParser(description="Ingest news (RSS + GDELT + EDGAR full-text).")
+    parser.add_argument(
+        "--days", type=int, default=7,
+        help="Lookback window in days for GDELT events (default 7). "
+             "Use a larger value (e.g. 90) for cold-start backfill of sentiment history.",
+    )
+    args = parser.parse_args()
+
     output_dir = Path("data/raw")
 
     print("[News] Scraping RSS feeds...")
     scrape_rss_feeds(output_dir)
 
-    print("[News] Fetching GDELT events...")
+    print(f"[News] Fetching GDELT events (last {args.days} days)...")
     try:
+        # GDELT treats space-separated terms as a phrase; we want OR semantics
+        # across the AI-infra + robotics + cybersecurity + enterprise-SaaS themes
+        # so that any matching article is returned.
+        # GDELT requires every quoted phrase to be ≥5 chars (otherwise the API
+        # returns 200 with body "The specified phrase is too short." and 0
+        # articles). Keep all terms above that threshold.
         articles = fetch_gdelt_events(
-            "semiconductor export control chip data center nuclear power",
-            days_back=1,
+            '("data center" OR "semiconductor" OR "nuclear power" OR '
+            '"export control" OR "AI chip" OR "hyperscaler" OR '
+            '"humanoid robot" OR "industrial automation" OR "AI agent" OR '
+            '"agentic AI" OR "ransomware" OR "zero trust")',
+            days_back=args.days,
         )
         print(f"[News] GDELT: {len(articles)} articles fetched")
 

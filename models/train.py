@@ -506,12 +506,19 @@ def train_all_layers(
     horizon_tag: str | None = None,
     lgbm_params: dict | None = None,
     rf_params: dict | None = None,
+    force: bool = False,
 ) -> None:
     """Train one ensemble per (horizon, layer) pair and save artifacts.
 
     horizon_tag: if given, trains only that horizon. If None, trains all 8 horizons.
     Horizons are skipped when a layer has fewer than 100 labeled rows.
     Artifacts are saved to: artifacts_dir/layer_{id}_{name}/horizon_{tag}/
+
+    force: if False (default), skip any (layer, horizon) whose artifact dir
+    already contains ensemble_weights.json (the marker file written last by
+    train_single_layer). This makes the loop resumable: a crash, OOM, or
+    power-off mid-run leaves completed pairs untouched on the next start.
+    Pass force=True to retrain everything from scratch.
     """
     if horizon_tag is not None and horizon_tag not in HORIZON_CONFIGS:
         raise ValueError(
@@ -528,6 +535,13 @@ def train_all_layers(
         for layer in all_layers():
             layer_id = LAYER_IDS[layer]
             horizon_dir = artifacts_dir / f"layer_{layer_id:02d}_{layer}" / f"horizon_{h_tag}"
+
+            if not force and (horizon_dir / "ensemble_weights.json").exists():
+                _LOG.info(
+                    "  layer %-20s  horizon %s — artifacts already present, skipping (use --force to retrain)",
+                    layer, h_tag,
+                )
+                continue
 
             df = build_training_dataset(
                 ohlcv_dir, fundamentals_dir, layer=layer, horizon_tag=h_tag
@@ -816,6 +830,11 @@ if __name__ == "__main__":
         "--horizon", default=None,
         help="Single horizon tag to train, e.g. '5d' or '252d'. Default: all 8 horizons.",
     )
+    parser.add_argument(
+        "--force", action="store_true",
+        help="Retrain even when ensemble_weights.json already exists. "
+             "Default: skip completed (layer, horizon) pairs so the loop is resumable.",
+    )
     args = parser.parse_args()
 
     project_root = Path(__file__).parent.parent
@@ -824,7 +843,10 @@ if __name__ == "__main__":
     artifacts_dir    = project_root / "models" / "artifacts"
 
     label = args.horizon or "all"
-    _LOG.info("Training per-layer ensembles for horizon(s): %s", label)
-    train_all_layers(ohlcv_dir, fundamentals_dir, artifacts_dir, horizon_tag=args.horizon)
+    _LOG.info("Training per-layer ensembles for horizon(s): %s (force=%s)", label, args.force)
+    train_all_layers(
+        ohlcv_dir, fundamentals_dir, artifacts_dir,
+        horizon_tag=args.horizon, force=args.force,
+    )
     _LOG.info("[Train] All layer artifacts → %s", artifacts_dir)
     print(f"[Train] Artifacts → {artifacts_dir}")
