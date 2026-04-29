@@ -32,6 +32,10 @@ AI_ECONOMICS_FEATURE_COLS: list[str] = [
 
 _TOLERANCE_DAYS = 120
 
+# 10-Q SEC filing requirement is 40 days; pad to 45. Hyperscaler revenue/capex
+# numbers are not publicly observable until the 10-Q is filed.
+_HYPERSCALER_PUBLICATION_LAG_DAYS = 45
+
 
 def _load_quarterly(raw_path: Path) -> pl.DataFrame:
     if not raw_path.exists():
@@ -47,10 +51,17 @@ def _ttm_aggregate(df: pl.DataFrame, as_of: date) -> tuple[float | None, float |
 
     Returns (None, None) if fewer than 4 distinct period_end dates fall within the
     TTM window for any ticker — the aggregate would be misleading.
+
+    Point-in-time correction: the source parquet stores period_end (the quarter
+    boundary), but those numbers aren't publicly observable until the
+    corresponding 10-Q is filed (~45 days later). Effective availability is
+    treated as period_end + 45 days; rows whose effective_avail > as_of are
+    excluded from the TTM window.
     """
     cutoff = as_of - timedelta(days=400)   # 4 quarters + buffer for late filers
+    available_cutoff = as_of - timedelta(days=_HYPERSCALER_PUBLICATION_LAG_DAYS)
     eligible = df.filter(
-        (pl.col("period_end") <= as_of) & (pl.col("period_end") >= cutoff)
+        (pl.col("period_end") <= available_cutoff) & (pl.col("period_end") >= cutoff)
     )
     if eligible.is_empty():
         return None, None

@@ -28,10 +28,11 @@ def _query_df(date: datetime.date) -> pl.DataFrame:
     )
 
 
-_QUERY_DATE = datetime.date(2024, 4, 1)
-_RECENT = datetime.date(2024, 3, 20)    # 12 days ago — inside 30d window
-_PRIOR = datetime.date(2024, 2, 20)     # 40 days ago — inside prior 30d window (31-60d)
-_OLD = datetime.date(2024, 1, 1)        # 91 days ago — outside 60d window
+_QUERY_DATE = datetime.date(2024, 5, 15)  # bumped 30d for BLS JOLTS publication lag (point-in-time)
+# Relative to _QUERY_DATE = 2024-05-15
+_RECENT = datetime.date(2024, 5, 3)     # 12 days ago — inside 30d window
+_PRIOR = datetime.date(2024, 4, 5)      # 40 days ago — inside prior 30d window (31-60d)
+_OLD = datetime.date(2024, 2, 14)       # 91 days ago — outside 60d window
 
 
 def test_gov_ai_hiring_30d_window(tmp_path):
@@ -93,7 +94,8 @@ def test_tech_job_openings_index_most_recent_month(tmp_path):
     ])
 
     # Use query date 2024-03-15 so M04 (2024-04-01) is excluded
-    df = join_labor_features(_query_df(datetime.date(2024, 3, 15)), usajobs_dir, jolts_dir)
+    # Spine 2024-04-15: M03 (2024-03-01 + 30d = 2024-03-31) is available; M04 (2024-04-01 + 30d = 2024-05-01) is not.
+    df = join_labor_features(_query_df(datetime.date(2024, 4, 15)), usajobs_dir, jolts_dir)
     assert df["tech_job_openings_index"][0] == pytest.approx(120.0)
 
 

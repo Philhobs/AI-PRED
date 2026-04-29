@@ -72,6 +72,22 @@ _JOLTS_NAICS_333 = "JTS333000000000000JOL"
 _FRED_TOLERANCE_DAYS = 60
 _PATENT_TOLERANCE_DAYS = 120
 
+# Publication lag — how many days after the period date the data becomes
+# publicly observable. Applied at join time to prevent lookahead. These are
+# conservative defaults (typically the data is published around or before
+# these dates).
+#
+#   FRED macro (NEWORDER/CFNAI/IPG3331S/WPU114): mostly released 30-45 days
+#       after period end (varies by series); 45d is a safe default.
+#   BLS JOLTS NAICS 333: released ~30 business days after the reference month.
+#   USPTO patent applications: pre-grant publications appear ~18 months after
+#       filing by statute (35 USC 122(b)). When patent ingestion is restored
+#       it should switch to the publication_date column directly; until then
+#       the buckets are empty so this lag is moot.
+_FRED_PUBLICATION_LAG_DAYS = 45
+_JOLTS_PUBLICATION_LAG_DAYS = 30
+_PATENT_PUBLICATION_LAG_DAYS = 540
+
 
 def _yoy(current: float | None, prior: float | None) -> float | None:
     """Year-over-year ratio. None if either value is missing or prior is 0."""
@@ -134,8 +150,14 @@ def _asof_join_level(query_df: pl.DataFrame,
                      src_date_col: str,
                      src_value_col: str,
                      alias: str,
-                     tolerance_days: int) -> pl.DataFrame:
+                     tolerance_days: int,
+                     publication_lag_days: int = 0) -> pl.DataFrame:
     """join_asof backward with tolerance — returns query_df + one new {alias: Float64} column.
+
+    publication_lag_days: shift the source date forward by this many days
+    before the asof match. This is the point-in-time correction: the data
+    keyed at period_date is not publicly observable until period_date +
+    publication_lag_days, so the spine's join must wait that long.
 
     When src is empty, fills the new column with nulls instead of crashing.
     """
@@ -144,9 +166,11 @@ def _asof_join_level(query_df: pl.DataFrame,
     src_sorted = (
         src_df.sort(src_date_col)
         .select([
-            pl.col(src_date_col).alias("_join_date"),
+            (pl.col(src_date_col) + pl.duration(days=publication_lag_days))
+                .cast(pl.Date).alias("_join_date"),
             pl.col(src_value_col).cast(pl.Float64).alias(alias),
         ])
+        .sort("_join_date")
     )
     return (
         query_df.sort(query_date_col)
@@ -195,12 +219,14 @@ def join_physical_ai_features(
     for series_id, (level_col, yoy_col) in _FRED_COL_MAP.items():
         src = fred_data[series_id]
         feature_df = _asof_join_level(
-            feature_df, "date", src, "date", "value", level_col, _FRED_TOLERANCE_DAYS
+            feature_df, "date", src, "date", "value", level_col,
+            _FRED_TOLERANCE_DAYS, publication_lag_days=_FRED_PUBLICATION_LAG_DAYS,
         )
         if yoy_col is not None:
             feature_df = _asof_join_level(
                 feature_df, "_prior_date", src, "date", "value",
                 f"_{yoy_col}_prior", _FRED_TOLERANCE_DAYS,
+                publication_lag_days=_FRED_PUBLICATION_LAG_DAYS,
             )
             # yoy = (level - prior) / prior; null when prior is null or zero
             feature_df = feature_df.with_columns(
@@ -217,10 +243,12 @@ def join_physical_ai_features(
     feature_df = _asof_join_level(
         feature_df, "date", jolts, "period_date", "value",
         "phys_ai_machinery_jobs_level", _FRED_TOLERANCE_DAYS,
+        publication_lag_days=_JOLTS_PUBLICATION_LAG_DAYS,
     )
     feature_df = _asof_join_level(
         feature_df, "_prior_date", jolts, "period_date", "value",
         "_jobs_prior", _FRED_TOLERANCE_DAYS,
+        publication_lag_days=_JOLTS_PUBLICATION_LAG_DAYS,
     )
     feature_df = feature_df.with_columns(
         pl.when((pl.col("_jobs_prior").is_null()) | (pl.col("_jobs_prior") == 0))
@@ -238,10 +266,12 @@ def join_physical_ai_features(
         feature_df = _asof_join_level(
             feature_df, "date", src, "quarter_end", "filing_count",
             count_col, _PATENT_TOLERANCE_DAYS,
+            publication_lag_days=_PATENT_PUBLICATION_LAG_DAYS,
         )
         feature_df = _asof_join_level(
             feature_df, "_prior_date", src, "quarter_end", "filing_count",
             f"_{yoy_col}_prior", _PATENT_TOLERANCE_DAYS,
+            publication_lag_days=_PATENT_PUBLICATION_LAG_DAYS,
         )
         feature_df = feature_df.with_columns(
             pl.when((pl.col(f"_{yoy_col}_prior").is_null()) | (pl.col(f"_{yoy_col}_prior") == 0))

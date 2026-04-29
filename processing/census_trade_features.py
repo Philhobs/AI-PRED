@@ -89,7 +89,7 @@ def join_census_trade_features(
                         ) AS rn
                     FROM query_dates q
                     CROSS JOIN dated d
-                    WHERE d.period_date <= q.date
+                    WHERE d.period_date + INTERVAL '50' DAY <= q.date  -- Census FT900 publication lag ~50d (point-in-time)
                 )
                 SELECT
                     date,
@@ -124,7 +124,7 @@ def join_census_trade_features(
                         ) AS rn
                     FROM query_dates q
                     CROSS JOIN dated d
-                    WHERE d.period_date <= q.date
+                    WHERE d.period_date + INTERVAL '50' DAY <= q.date  -- Census FT900 publication lag ~50d (point-in-time)
                 )
                 SELECT
                     date,
@@ -160,7 +160,7 @@ def join_census_trade_features(
                         ) AS rn
                     FROM query_dates q
                     CROSS JOIN dated d
-                    WHERE d.period_date <= q.date
+                    WHERE d.period_date + INTERVAL '50' DAY <= q.date  -- Census FT900 publication lag ~50d (point-in-time)
                 )
                 SELECT
                     date,
@@ -192,7 +192,7 @@ def join_census_trade_features(
                         ) AS rn
                     FROM query_dates q
                     CROSS JOIN dated d
-                    WHERE d.period_date <= q.date
+                    WHERE d.period_date + INTERVAL '50' DAY <= q.date  -- Census FT900 publication lag ~50d (point-in-time)
                 )
                 SELECT
                     date,

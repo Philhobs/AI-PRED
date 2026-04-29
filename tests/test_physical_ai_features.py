@@ -113,9 +113,12 @@ def test_join_macro_features_forward_fills_within_60d(tmp_path: Path):
         _write_patent_parquet(patents_dir, bucket,
             [(date(2024, 12, 31), 100), (date(2025, 3, 31), 120)])
 
+    # Spine 2025-04-15: FRED data 2025-02-01 + 45d publication lag = 2025-03-18,
+    # so it's available; 2025-01-01 + 45d = 2025-02-15, also available; backward
+    # asof picks the latest = the 2025-02-01 data (105.0).
     spine = pl.DataFrame({
         "ticker": ["NVDA", "AAPL"],
-        "date":   [date(2025, 3, 15), date(2025, 3, 15)],
+        "date":   [date(2025, 4, 15), date(2025, 4, 15)],
     }, schema={"ticker": pl.Utf8, "date": pl.Date})
 
     out = join_physical_ai_features(spine, fred_dir, jolts_dir, patents_dir)
@@ -140,8 +143,11 @@ def test_join_macro_features_null_beyond_tolerance(tmp_path: Path):
     jolts_dir = tmp_path / "bls_jolts"
     patents_dir = tmp_path / "uspto" / "physical_ai"
 
+    # FRED data 2024-12-01 + 45d publication lag = 2025-01-15.
+    # Spine 2025-05-01 looks back; 2025-01-15 is 106 days behind, outside the
+    # 60d tolerance → null.
     spine = pl.DataFrame({
-        "ticker": ["NVDA"], "date": [date(2025, 3, 15)],
+        "ticker": ["NVDA"], "date": [date(2025, 5, 1)],
     }, schema={"ticker": pl.Utf8, "date": pl.Date})
 
     out = join_physical_ai_features(spine, fred_dir, jolts_dir, patents_dir)
@@ -156,12 +162,14 @@ def test_join_patent_features_quarterly_tolerance(tmp_path: Path):
     jolts_dir = tmp_path / "bls_jolts"
     patents_dir = tmp_path / "uspto" / "physical_ai"
 
-    # Q4-2024 ends Dec 31, 2024 — 105 days before April 15, 2025 (within 120d)
+    # Q4-2024 ends Dec 31, 2024 — but pre-grant publications appear ~540 days
+    # after filing (35 USC 122(b)). Effective availability ~2026-06-23. Spine
+    # 2026-09-01 is past that and within the 120d tolerance.
     for bucket in ["B25J", "B64", "B60W", "G05D1", "G05B19", "G06V"]:
         _write_patent_parquet(patents_dir, bucket, [(date(2024, 12, 31), 50)])
 
     spine = pl.DataFrame({
-        "ticker": ["NVDA"], "date": [date(2025, 4, 15)],
+        "ticker": ["NVDA"], "date": [date(2026, 9, 1)],
     }, schema={"ticker": pl.Utf8, "date": pl.Date})
 
     out = join_physical_ai_features(spine, fred_dir, jolts_dir, patents_dir)

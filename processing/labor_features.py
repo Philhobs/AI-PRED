@@ -132,7 +132,9 @@ def join_labor_features(
                         ) AS rn
                     FROM query_dates q
                     CROSS JOIN jolts_dated j
-                    WHERE j.period_date <= q.date
+                    -- BLS JOLTS releases ~30 days after the reference month;
+                    -- enforce point-in-time (period_date + 30d <= q.date).
+                    WHERE j.period_date + INTERVAL '30' DAY <= q.date
                 )
                 SELECT
                     date,

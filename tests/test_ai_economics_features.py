@@ -48,7 +48,7 @@ def test_capex_coverage_ratio_perfect_data(tmp_path: Path):
 
     spine = pl.DataFrame({
         "ticker": ["NVDA", "AAPL"],
-        "date":   [date(2026, 1, 15), date(2026, 1, 15)],
+        "date":   [date(2026, 3, 1), date(2026, 3, 1)],
     }, schema={"ticker": pl.Utf8, "date": pl.Date})
 
     out = join_ai_economics_features(spine, raw_path=raw)
@@ -73,7 +73,7 @@ def test_yoy_computed_from_prior_year_aggregate(tmp_path: Path):
     _write_quarterly(raw, rows)
 
     spine = pl.DataFrame({
-        "ticker": ["NVDA"], "date": [date(2026, 1, 15)],
+        "ticker": ["NVDA"], "date": [date(2026, 3, 1)],
     }, schema={"ticker": pl.Utf8, "date": pl.Date})
 
     out = join_ai_economics_features(spine, raw_path=raw)
@@ -93,7 +93,7 @@ def test_returns_null_when_too_few_quarters(tmp_path: Path):
     ])
 
     spine = pl.DataFrame({
-        "ticker": ["NVDA"], "date": [date(2026, 1, 15)],
+        "ticker": ["NVDA"], "date": [date(2026, 3, 1)],
     }, schema={"ticker": pl.Utf8, "date": pl.Date})
 
     out = join_ai_economics_features(spine, raw_path=raw)
@@ -106,7 +106,7 @@ def test_returns_null_when_raw_file_missing(tmp_path: Path):
     from processing.ai_economics_features import join_ai_economics_features
 
     spine = pl.DataFrame({
-        "ticker": ["NVDA"], "date": [date(2026, 1, 15)],
+        "ticker": ["NVDA"], "date": [date(2026, 3, 1)],
     }, schema={"ticker": pl.Utf8, "date": pl.Date})
 
     # raw_path points to a file that doesn't exist
@@ -128,7 +128,7 @@ def test_features_apply_to_all_tickers(tmp_path: Path):
 
     spine = pl.DataFrame({
         "ticker": ["NVDA", "TSLA", "ROK", "1683.HK"],
-        "date":   [date(2026, 1, 15)] * 4,
+        "date":   [date(2026, 3, 1)] * 4,
     }, schema={"ticker": pl.Utf8, "date": pl.Date})
 
     out = join_ai_economics_features(spine, raw_path=raw)

@@ -20,7 +20,7 @@ def _query_df(date: datetime.date) -> pl.DataFrame:
     )
 
 
-_QUERY_DATE = datetime.date(2024, 4, 15)
+_QUERY_DATE = datetime.date(2024, 6, 15)  # bumped 50d for Census FT900 publication lag (point-in-time)
 _RUN_DATE = datetime.date(2024, 4, 1)
 
 
