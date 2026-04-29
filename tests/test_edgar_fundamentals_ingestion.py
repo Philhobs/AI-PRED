@@ -40,9 +40,10 @@ _BALANCE_8Q = pl.DataFrame({
 })
 
 
-def test_schema_has_16_columns():
-    """_SCHEMA must have 16 fields: ticker + period_end + 14 ratio columns."""
-    assert len(_SCHEMA) == 16
+def test_schema_has_17_columns():
+    """_SCHEMA must have 17 fields: ticker + period_end + available_date + 14 ratio columns."""
+    assert len(_SCHEMA) == 17
+    assert _SCHEMA.field("available_date").type == pa.date32()
     assert _SCHEMA.field("net_income_margin").type == pa.float64()
     assert _SCHEMA.field("free_cash_flow_margin").type == pa.float64()
     assert _SCHEMA.field("capex_growth_yoy").type == pa.float64()

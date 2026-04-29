@@ -24,6 +24,10 @@ FUNDAMENTAL_FEATURE_COLS: list[str] = [
 _FUND_SCHEMA = {
     "ticker": pl.Utf8,
     "period_end": pl.Date,
+    # Public availability date — when the underlying 10-Q/10-K was filed with
+    # the SEC. Asof joins use this column to prevent lookahead. Legacy parquets
+    # written before this column existed get a fallback of period_end + 45d.
+    "available_date": pl.Date,
     "pe_ratio_trailing": pl.Float64,
     "price_to_sales": pl.Float64,
     "price_to_book": pl.Float64,
@@ -69,19 +73,28 @@ def join_fundamentals(
 
     try:
         # missing_columns='insert' tolerates per-ticker parquets written with an
-        # older schema (pre-EDGAR-expansion): missing TTM columns become null
-        # instead of crashing. Old parquets get refetched on next EDGAR run.
+        # older schema (pre-EDGAR-expansion or pre-available_date): missing
+        # columns become null instead of crashing. Old parquets get refetched
+        # on next EDGAR run.
         fund_df = (
             pl.scan_parquet(glob, schema=_FUND_SCHEMA, missing_columns="insert")
             .with_columns(pl.col("period_end").cast(pl.Date))
             .collect()
-            .sort(["ticker", "period_end"])
         )
     except FileNotFoundError:
         return price_df.with_columns(null_fund_cols)
 
     if fund_df.is_empty():
         return price_df.with_columns(null_fund_cols)
+
+    # Legacy fallback: parquets without available_date use period_end + 45 days
+    # (10-Q SEC filing requirement is 40 days; pad to 45 for safety).
+    fund_df = fund_df.with_columns(
+        pl.when(pl.col("available_date").is_null())
+        .then((pl.col("period_end") + pl.duration(days=45)).cast(pl.Date))
+        .otherwise(pl.col("available_date"))
+        .alias("available_date")
+    ).sort(["ticker", "available_date"])
 
     price_sorted = (
         price_df
@@ -90,13 +103,13 @@ def join_fundamentals(
     )
 
     joined = price_sorted.join_asof(
-        fund_df.select(["ticker", "period_end"] + FUNDAMENTAL_FEATURE_COLS),
+        fund_df.select(["ticker", "available_date"] + FUNDAMENTAL_FEATURE_COLS),
         left_on="date",
-        right_on="period_end",
+        right_on="available_date",
         by="ticker",
         strategy="backward",
         check_sortedness=False,
     )
 
-    # Drop the right join key (period_end) — keep output schema consistent with null-fallback path
-    return joined.drop("period_end").sort(["ticker", "date"])
+    # Drop the right join key — keep output schema consistent with null-fallback path
+    return joined.drop("available_date").sort(["ticker", "date"])

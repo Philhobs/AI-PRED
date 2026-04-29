@@ -233,6 +233,13 @@ SHARES_CONCEPTS = [
 _SCHEMA = pa.schema([
     pa.field("ticker",                pa.string()),
     pa.field("period_end",            pa.date32()),
+    # Public availability date — the SEC filed_date of the 10-Q/10-K that
+    # contained the period's numbers. For rows aggregated from multiple XBRL
+    # concepts (income+balance), this is MAX(filed) across all contributing
+    # concepts (the row is fully observable only after every component has been
+    # publicly disclosed). When missing in legacy parquets, downstream joins
+    # fall back to period_end + 45 days (10-Q SEC requirement is 40 days).
+    pa.field("available_date",        pa.date32()),
     pa.field("pe_ratio_trailing",     pa.float64()),
     pa.field("price_to_sales",        pa.float64()),
     pa.field("price_to_book",         pa.float64()),
@@ -319,8 +326,17 @@ def _filter_quarterly(records: list[dict]) -> list[dict]:
         if not (75 <= days <= 105):
             continue
         key = r["end"]
-        if key not in best or r["filed"] > best[key]["filed"]:
-            best[key] = r
+        if key not in best:
+            # First time seeing this period — initialize filed_first too
+            best[key] = {**r, "filed_first": r["filed"]}
+        else:
+            # Track earliest filing (when value first became public) and keep
+            # the latest filing's value (so amendments are reflected).
+            prior_first = best[key]["filed_first"]
+            if r["filed"] > best[key]["filed"]:
+                best[key] = {**r, "filed_first": prior_first}
+            elif r["filed"] < prior_first:
+                best[key]["filed_first"] = r["filed"]
     return sorted(best.values(), key=lambda x: x["end"])
 
 
@@ -341,22 +357,33 @@ def _filter_annual(records: list[dict]) -> list[dict]:
         if not (350 <= days <= 380):
             continue
         key = r["end"]
-        if key not in best or r["filed"] > best[key]["filed"]:
-            best[key] = r
+        if key not in best:
+            best[key] = {**r, "filed_first": r["filed"]}
+        else:
+            prior_first = best[key]["filed_first"]
+            if r["filed"] > best[key]["filed"]:
+                best[key] = {**r, "filed_first": prior_first}
+            elif r["filed"] < prior_first:
+                best[key]["filed_first"] = r["filed"]
     return sorted(best.values(), key=lambda x: x["end"])
 
 
 def _to_period_series(records: list[dict], value_col: str, annual: bool) -> pl.DataFrame:
     """
     Apply quarterly or annual filter to raw EDGAR records.
-    Return DataFrame with [period_end (Date), value_col (Float64)].
-    Returns empty DataFrame with correct schema if no records pass the filter.
+    Return DataFrame with [period_end (Date), value_col (Float64), <value_col>_filed (Date)].
+    The <value_col>_filed column is the SEC filing date of the 10-Q/10-K
+    containing this concept's value — used downstream as available_date for
+    point-in-time joins. Returns empty DataFrame with the schema if no records
+    pass the filter.
     """
+    filed_col = f"{value_col}_filed"
     filtered = _filter_annual(records) if annual else _filter_quarterly(records)
     if not filtered:
         return pl.DataFrame(
             {"period_end": pl.Series([], dtype=pl.Date),
-             value_col:    pl.Series([], dtype=pl.Float64)}
+             value_col:    pl.Series([], dtype=pl.Float64),
+             filed_col:    pl.Series([], dtype=pl.Date)}
         )
     return pl.DataFrame({
         "period_end": pl.Series(
@@ -366,6 +393,10 @@ def _to_period_series(records: list[dict], value_col: str, annual: bool) -> pl.D
         value_col: pl.Series(
             [float(r["val"]) for r in filtered],
             dtype=pl.Float64,
+        ),
+        filed_col: pl.Series(
+            [datetime.date.fromisoformat(r["filed_first"]) for r in filtered],
+            dtype=pl.Date,
         ),
     })
 
@@ -404,11 +435,15 @@ def _build_income_df(cik: str, ticker: str, annual: bool) -> pl.DataFrame:
         if not other.is_empty():
             df = df.join(other, on="period_end", how="left")
         else:
-            col_name = [c for c in other.columns if c != "period_end"][0] if other.columns else None
-            if col_name:
-                df = df.with_columns(pl.lit(None).cast(pl.Float64).alias(col_name))
+            # `other` carries its empty value column AND its empty *_filed column;
+            # we have to insert nulls for both so the schema is consistent.
+            for col in other.columns:
+                if col == "period_end" or col in df.columns:
+                    continue
+                dtype = pl.Date if col.endswith("_filed") else pl.Float64
+                df = df.with_columns(pl.lit(None).cast(dtype).alias(col))
 
-    # Ensure all expected columns exist
+    # Ensure all expected value columns exist
     for col in ["gross_profit", "operating_income", "net_income", "capex", "rd_expense"]:
         if col not in df.columns:
             df = df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
@@ -416,6 +451,17 @@ def _build_income_df(cik: str, ticker: str, annual: bool) -> pl.DataFrame:
     # Capex is a cash outflow (negative in XBRL) — store as positive
     if "capex" in df.columns:
         df = df.with_columns(pl.col("capex").abs())
+
+    # Consolidate per-concept *_filed dates into a single income_available_date
+    # = MAX across all concepts on this period_end. The row is publicly
+    # observable only after every contributing 10-Q/10-K has been filed.
+    filed_cols = [c for c in df.columns if c.endswith("_filed")]
+    if filed_cols:
+        df = df.with_columns(
+            pl.max_horizontal([pl.col(c) for c in filed_cols]).alias("income_available_date")
+        ).drop(filed_cols)
+    else:
+        df = df.with_columns(pl.lit(None).cast(pl.Date).alias("income_available_date"))
 
     return df.sort("period_end")
 
@@ -430,17 +476,29 @@ def _build_balance_df(cik: str, ticker: str) -> pl.DataFrame:
     print(f"[EDGAR] {ticker}: fetching balance sheet...")
 
     def _dedup_snapshot(records: list[dict], value_col: str) -> pl.DataFrame:
-        """Deduplicate snapshot (no start) records by end date, keep latest filed."""
+        """Deduplicate snapshot (no start) records by end date, keep latest filed.
+
+        Returns columns: [period_end, value_col, <value_col>_filed]. The filed
+        column carries the SEC filing date for downstream point-in-time joins.
+        """
+        filed_col = f"{value_col}_filed"
         best: dict[str, dict] = {}
         for r in records:
             key = r["end"]
-            if key not in best or r["filed"] > best[key]["filed"]:
-                best[key] = r
+            if key not in best:
+                best[key] = {**r, "filed_first": r["filed"]}
+            else:
+                prior_first = best[key]["filed_first"]
+                if r["filed"] > best[key]["filed"]:
+                    best[key] = {**r, "filed_first": prior_first}
+                elif r["filed"] < prior_first:
+                    best[key]["filed_first"] = r["filed"]
         filtered = sorted(best.values(), key=lambda x: x["end"])
         if not filtered:
             return pl.DataFrame({
                 "period_end": pl.Series([], dtype=pl.Date),
                 value_col:    pl.Series([], dtype=pl.Float64),
+                filed_col:    pl.Series([], dtype=pl.Date),
             })
         return pl.DataFrame({
             "period_end": pl.Series(
@@ -450,6 +508,10 @@ def _build_balance_df(cik: str, ticker: str) -> pl.DataFrame:
             value_col: pl.Series(
                 [float(r["val"]) for r in filtered],
                 dtype=pl.Float64,
+            ),
+            filed_col: pl.Series(
+                [datetime.date.fromisoformat(r["filed_first"]) for r in filtered],
+                dtype=pl.Date,
             ),
         })
 
@@ -474,13 +536,25 @@ def _build_balance_df(cik: str, ticker: str) -> pl.DataFrame:
         if not other.is_empty():
             df = df.join(other, on="period_end", how="left")
         else:
-            col_name = [c for c in other.columns if c != "period_end"][0] if other.columns else None
-            if col_name:
-                df = df.with_columns(pl.lit(None).cast(pl.Float64).alias(col_name))
+            for col in other.columns:
+                if col == "period_end" or col in df.columns:
+                    continue
+                dtype = pl.Date if col.endswith("_filed") else pl.Float64
+                df = df.with_columns(pl.lit(None).cast(dtype).alias(col))
 
     for col in ["long_term_debt", "current_assets", "current_liabilities", "shares_outstanding"]:
         if col not in df.columns:
             df = df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
+
+    # Consolidate per-concept *_filed → balance_available_date = MAX over all
+    # contributing balance-sheet concepts on this period_end.
+    filed_cols = [c for c in df.columns if c.endswith("_filed")]
+    if filed_cols:
+        df = df.with_columns(
+            pl.max_horizontal([pl.col(c) for c in filed_cols]).alias("balance_available_date")
+        ).drop(filed_cols)
+    else:
+        df = df.with_columns(pl.lit(None).cast(pl.Date).alias("balance_available_date"))
 
     return df.sort("period_end")
 
@@ -505,6 +579,25 @@ def _compute_derived(income: pl.DataFrame, balance: pl.DataFrame) -> pl.DataFram
         return pl.DataFrame()
 
     df = income.join(balance, on="period_end", how="left").sort("period_end")
+
+    # Final available_date = MAX(income_available_date, balance_available_date).
+    # Both inputs may be missing if test/legacy fixtures didn't carry them; in
+    # that case downstream code falls back to period_end + 45d (10-Q rule).
+    has_income_avail  = "income_available_date" in df.columns
+    has_balance_avail = "balance_available_date" in df.columns
+    if has_income_avail and has_balance_avail:
+        df = df.with_columns(
+            pl.max_horizontal([
+                pl.col("income_available_date"),
+                pl.col("balance_available_date"),
+            ]).alias("available_date")
+        ).drop(["income_available_date", "balance_available_date"])
+    elif has_income_avail:
+        df = df.rename({"income_available_date": "available_date"})
+    elif has_balance_avail:
+        df = df.rename({"balance_available_date": "available_date"})
+    else:
+        df = df.with_columns(pl.lit(None).cast(pl.Date).alias("available_date"))
 
     # Revenue YoY: calendar-aware join on year+quarter to handle gaps in history.
     # shift(4) is position-based and produces wrong results when quarters are missing.
@@ -760,9 +853,11 @@ def fetch_edgar_fundamentals(ticker: str, ohlcv_dir: Path) -> pl.DataFrame:
 
     df = _compute_valuation_ratios(df, ticker, ohlcv_dir)
 
-    # Select and rename to final output schema
+    # Select and rename to final output schema (period_end + available_date,
+    # then the 14 ratio/metric columns).
     output_cols = [
-        "period_end", "pe_ratio_trailing", "price_to_sales", "price_to_book",
+        "period_end", "available_date",
+        "pe_ratio_trailing", "price_to_sales", "price_to_book",
         "revenue_growth_yoy", "gross_margin", "operating_margin",
         "capex_to_revenue", "debt_to_equity", "current_ratio",
         # 5 new TTM metrics
@@ -775,7 +870,9 @@ def fetch_edgar_fundamentals(ticker: str, ohlcv_dir: Path) -> pl.DataFrame:
 
     df = df.select(present)
     for col in missing:
-        df = df.with_columns(pl.lit(None).cast(pl.Float64).alias(col))
+        # available_date is a Date column; everything else is Float64
+        dtype = pl.Date if col == "available_date" else pl.Float64
+        df = df.with_columns(pl.lit(None).cast(dtype).alias(col))
 
     df = df.select(output_cols).with_columns(
         pl.lit(ticker).alias("ticker")

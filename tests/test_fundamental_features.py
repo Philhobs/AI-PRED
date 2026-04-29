@@ -13,10 +13,15 @@ def _write_fundamentals_fixture(fund_dir: Path, ticker: str, quarters: list[dict
 
 
 def _make_full_quarter(ticker: str, period_end: datetime.date, **overrides) -> dict:
-    """Return a dict with all 14 fundamental columns (+ ticker + period_end)."""
+    """Return a dict with all 14 fundamental columns (+ ticker + period_end + available_date).
+
+    By default available_date = period_end + 30 days (a typical 10-Q filing
+    cadence). Override per-test when the lag matters.
+    """
     base = {
         "ticker": ticker,
         "period_end": period_end,
+        "available_date": period_end + datetime.timedelta(days=30),
         "pe_ratio_trailing": 25.0, "price_to_sales": 8.0, "price_to_book": 3.0,
         "revenue_growth_yoy": 0.15, "gross_margin": 0.60, "operating_margin": 0.25,
         "capex_to_revenue": 0.08, "debt_to_equity": 0.5, "current_ratio": 1.8,
@@ -89,9 +94,11 @@ def test_join_fundamentals_returns_null_columns_when_no_data(tmp_path):
 
 def test_join_fundamentals_preserves_all_price_rows(tmp_path):
     """join_fundamentals returns same number of rows as input price_df."""
+    # Spine dates land AFTER Q4-2023's available_date (= 2024-01-30 by the
+    # default lag in _make_full_quarter), so the 10-Q is publicly known.
     price_df = pl.DataFrame({
         "ticker": ["NVDA", "NVDA", "AMZN"],
-        "date":   [datetime.date(2024, 1, 1), datetime.date(2024, 6, 1), datetime.date(2024, 6, 1)],
+        "date":   [datetime.date(2024, 2, 15), datetime.date(2024, 6, 1), datetime.date(2024, 6, 1)],
         "close_price": [500.0, 900.0, 180.0],
     })
 
@@ -108,9 +115,9 @@ def test_join_fundamentals_preserves_all_price_rows(tmp_path):
     result = join_fundamentals(price_df, fundamentals_dir=tmp_path)
 
     assert len(result) == 3
-    # NVDA 2024-01-01 gets 2023-12-31 quarter
-    nvda_jan = result.filter((pl.col("ticker") == "NVDA") & (pl.col("date") == datetime.date(2024, 1, 1)))
-    assert nvda_jan["gross_margin"][0] == pytest.approx(0.65)
+    # NVDA 2024-02-15 (after Q4-2023 10-Q filed) gets the Q4-2023 quarter
+    nvda_feb = result.filter((pl.col("ticker") == "NVDA") & (pl.col("date") == datetime.date(2024, 2, 15)))
+    assert nvda_feb["gross_margin"][0] == pytest.approx(0.65)
     # Confirm no cross-ticker contamination: NVDA has data, AMZN does not
     nvda_jun = result.filter((pl.col("ticker") == "NVDA") & (pl.col("date") == datetime.date(2024, 6, 1)))
     assert nvda_jun["gross_margin"][0] == pytest.approx(0.65)  # same quarter, still matched
@@ -145,17 +152,19 @@ def test_join_fundamentals_returns_null_when_date_before_earliest_quarter(tmp_pa
 # ── New tests for the 5 additional columns ───────────────────────────────────
 
 def test_net_income_margin_asof_picks_most_recent_past_quarter(tmp_path):
-    """net_income_margin backward asof join selects the most recent quarter <= query date."""
+    """net_income_margin backward asof join picks most recently AVAILABLE quarter."""
     from processing.fundamental_features import join_fundamentals
     _write_fundamentals_fixture(tmp_path, "MSFT", [
         _make_full_quarter("MSFT", datetime.date(2022, 9, 30), net_income_margin=0.30),
         _make_full_quarter("MSFT", datetime.date(2022, 12, 31), net_income_margin=0.35),
-        # Future quarter — must NOT be picked for a date before 2023-03-31
+        # Future quarter — must NOT be picked for a date before its available_date
         _make_full_quarter("MSFT", datetime.date(2023, 3, 31), net_income_margin=0.40),
     ])
+    # Q4-2022 available_date = 2023-01-30 (period_end + 30d). Spine 2023-02-15
+    # is after Q4-2022 availability but before Q1-2023 availability (2023-04-30).
     price_df = pl.DataFrame({
         "ticker": ["MSFT"],
-        "date": pl.Series([datetime.date(2023, 1, 15)], dtype=pl.Date),
+        "date": pl.Series([datetime.date(2023, 2, 15)], dtype=pl.Date),
     })
     result = join_fundamentals(price_df, tmp_path)
     assert result["net_income_margin"][0] == pytest.approx(0.35)
@@ -196,9 +205,10 @@ def test_revenue_growth_accel_second_derivative(tmp_path):
         _make_full_quarter("GOOGL", datetime.date(2022, 9, 30),  revenue_growth_accel=0.0),
         _make_full_quarter("GOOGL", datetime.date(2022, 12, 31), revenue_growth_accel=0.05),
     ])
+    # Q4-2022 available_date = 2023-01-30; spine 2023-02-15 is after.
     price_df = pl.DataFrame({
         "ticker": ["GOOGL"],
-        "date": pl.Series([datetime.date(2023, 1, 20)], dtype=pl.Date),
+        "date": pl.Series([datetime.date(2023, 2, 15)], dtype=pl.Date),
     })
     result = join_fundamentals(price_df, tmp_path)
     assert result["revenue_growth_accel"][0] == pytest.approx(0.05)
@@ -216,3 +226,61 @@ def test_missing_fundamentals_dir_all_14_cols_present(tmp_path):
     for col in FUNDAMENTAL_FEATURE_COLS:
         assert col in result.columns, f"{col} missing from result"
     assert len(result) == 1
+
+
+# ── Point-in-time correctness (architecture v2 / Phase A.2) ───────────────────
+
+def test_join_fundamentals_no_lookahead_pre_filing(tmp_path):
+    """Spine date BEFORE available_date must NOT see the quarter — period_end alone is lookahead."""
+    from processing.fundamental_features import join_fundamentals
+    # Q4 ends 2023-12-31 but the 10-Q isn't filed until 2024-02-08. Spine 2024-01-15
+    # is after period_end (so the OLD code would join it) but before the filing
+    # date (so the new code correctly returns null).
+    _write_fundamentals_fixture(tmp_path, "NVDA", [
+        _make_full_quarter("NVDA", datetime.date(2023, 12, 31),
+                           available_date=datetime.date(2024, 2, 8),
+                           gross_margin=0.65),
+    ])
+    price_df = pl.DataFrame({
+        "ticker": ["NVDA", "NVDA"],
+        "date": pl.Series([datetime.date(2024, 1, 15),   # PRE-filing → null
+                            datetime.date(2024, 2, 15)],   # POST-filing → 0.65
+                          dtype=pl.Date),
+    })
+    result = join_fundamentals(price_df, tmp_path).sort("date")
+    pre  = result.filter(pl.col("date") == datetime.date(2024, 1, 15))
+    post = result.filter(pl.col("date") == datetime.date(2024, 2, 15))
+    assert pre["gross_margin"][0] is None, "lookahead bug: pre-filing spine should be null"
+    assert post["gross_margin"][0] == pytest.approx(0.65)
+
+
+def test_join_fundamentals_legacy_parquet_fallback(tmp_path):
+    """Parquet without available_date column falls back to period_end + 45 days."""
+    from processing.fundamental_features import join_fundamentals, FUNDAMENTAL_FEATURE_COLS
+    # Build a fixture WITHOUT available_date (simulates pre-A.2 ingestion output).
+    legacy_row = {
+        "ticker": "AMD",
+        "period_end": datetime.date(2023, 12, 31),
+        "pe_ratio_trailing": 20.0, "price_to_sales": 5.0, "price_to_book": 2.0,
+        "revenue_growth_yoy": 0.10, "gross_margin": 0.50, "operating_margin": 0.20,
+        "capex_to_revenue": 0.05, "debt_to_equity": 0.2, "current_ratio": 1.5,
+        "net_income_margin": 0.15, "free_cash_flow_margin": 0.10,
+        "capex_growth_yoy": 0.0, "revenue_growth_accel": 0.0,
+        "research_to_revenue": 0.08,
+    }
+    path = tmp_path / "AMD" / "quarterly.parquet"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pl.DataFrame([legacy_row]).write_parquet(str(path))
+
+    # Fallback available_date = 2023-12-31 + 45d = 2024-02-14
+    price_df = pl.DataFrame({
+        "ticker": ["AMD", "AMD"],
+        "date": pl.Series([datetime.date(2024, 2, 10),   # PRE-fallback → null
+                            datetime.date(2024, 2, 20)],   # POST-fallback → matched
+                          dtype=pl.Date),
+    })
+    result = join_fundamentals(price_df, tmp_path).sort("date")
+    pre  = result.filter(pl.col("date") == datetime.date(2024, 2, 10))
+    post = result.filter(pl.col("date") == datetime.date(2024, 2, 20))
+    assert pre["gross_margin"][0] is None
+    assert post["gross_margin"][0] == pytest.approx(0.50)
