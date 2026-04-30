@@ -32,7 +32,11 @@ from processing.fundamental_features import join_fundamentals, FUNDAMENTAL_FEATU
 from processing.fx_features import join_fx_features
 from processing.graph_features import join_graph_features
 from processing.insider_features import join_insider_features
-from processing.label_builder import build_labels, build_multi_horizon_labels
+from processing.label_builder import (
+    build_labels,
+    build_multi_horizon_labels,
+    build_multi_horizon_excess_labels,
+)
 from processing.ownership_features import join_ownership_features
 from processing.price_features import build_price_features
 from processing.sentiment_features import join_sentiment_features
@@ -186,6 +190,7 @@ def build_training_dataset(
     fundamentals_dir: Path,
     layer: str | None = None,
     horizon_tag: str | None = None,
+    target: str = "raw",
 ) -> pl.DataFrame:
     """
     Assemble the full labeled training dataset, optionally filtered to one layer
@@ -197,7 +202,13 @@ def build_training_dataset(
                  feature columns plus a 'label_return' column.
                  If None, returns the full FEATURE_COLS plus 'label_return_1y'
                  (backward-compatible behavior).
+    target:      "raw" (default — predicts ticker_return) or "excess"
+                 (predicts ticker_return - layer_mean_return; sector-neutral
+                 within the layer). target="excess" requires horizon_tag.
     """
+    if target not in ("raw", "excess"):
+        raise ValueError(f"target must be 'raw' or 'excess', got {target!r}")
+
     layer_tickers: list[str] = tickers_in_layer(layer) if layer is not None else []
 
     # ── Label scope: determines which rows survive the inner join ─────────────
@@ -207,13 +218,19 @@ def build_training_dataset(
                 f"Unknown horizon_tag {horizon_tag!r}. "
                 f"Valid tags: {list(HORIZON_CONFIGS)}"
             )
-        label_col = f"label_return_{horizon_tag}"
         tier = HORIZON_CONFIGS[horizon_tag]["tier"]
         feat_cols = TIER_FEATURE_COLS[tier]
 
-        multi_labels = build_multi_horizon_labels(
-            ohlcv_dir, horizons={horizon_tag: HORIZON_CONFIGS[horizon_tag]["shift"]}
-        )
+        if target == "excess":
+            label_col = f"label_excess_{horizon_tag}"
+            multi_labels = build_multi_horizon_excess_labels(
+                ohlcv_dir, horizons={horizon_tag: HORIZON_CONFIGS[horizon_tag]["shift"]}
+            )
+        else:
+            label_col = f"label_return_{horizon_tag}"
+            multi_labels = build_multi_horizon_labels(
+                ohlcv_dir, horizons={horizon_tag: HORIZON_CONFIGS[horizon_tag]["shift"]}
+            )
         if layer is not None:
             multi_labels = multi_labels.filter(pl.col("ticker").is_in(layer_tickers))
         label_scope = (
@@ -507,12 +524,20 @@ def train_all_layers(
     lgbm_params: dict | None = None,
     rf_params: dict | None = None,
     force: bool = False,
+    target: str = "raw",
 ) -> None:
     """Train one ensemble per (horizon, layer) pair and save artifacts.
 
     horizon_tag: if given, trains only that horizon. If None, trains all 8 horizons.
     Horizons are skipped when a layer has fewer than 100 labeled rows.
-    Artifacts are saved to: artifacts_dir/layer_{id}_{name}/horizon_{tag}/
+    Artifacts are saved to: artifacts_dir/layer_{id}_{name}/horizon_{tag}[_excess]/
+    The "_excess" suffix appears only when target='excess' so the raw and excess
+    artifact trees coexist.
+
+    target: "raw" (default) trains on label_return_<H>; "excess" trains on
+    label_excess_<H> (ticker_return - layer_mean_return). Both targets can
+    be trained side by side and compared; inference picks one via its own
+    --target flag.
 
     force: if False (default), skip any (layer, horizon) whose artifact dir
     already contains ensemble_weights.json (the marker file written last by
@@ -520,31 +545,42 @@ def train_all_layers(
     power-off mid-run leaves completed pairs untouched on the next start.
     Pass force=True to retrain everything from scratch.
     """
+    if target not in ("raw", "excess"):
+        raise ValueError(f"target must be 'raw' or 'excess', got {target!r}")
+
     if horizon_tag is not None and horizon_tag not in HORIZON_CONFIGS:
         raise ValueError(
             f"Unknown horizon_tag {horizon_tag!r}. Valid: {list(HORIZON_CONFIGS)}"
         )
 
     horizons_to_train = [horizon_tag] if horizon_tag else list(HORIZON_CONFIGS.keys())
+    horizon_suffix = "_excess" if target == "excess" else ""
 
     for h_tag in horizons_to_train:
         tier = HORIZON_CONFIGS[h_tag]["tier"]
         feat_cols = TIER_FEATURE_COLS[tier]
-        _LOG.info("Training horizon %s (%s tier, %d features)", h_tag, tier, len(feat_cols))
+        _LOG.info(
+            "Training horizon %s target=%s (%s tier, %d features)",
+            h_tag, target, tier, len(feat_cols),
+        )
 
         for layer in all_layers():
             layer_id = LAYER_IDS[layer]
-            horizon_dir = artifacts_dir / f"layer_{layer_id:02d}_{layer}" / f"horizon_{h_tag}"
+            horizon_dir = (
+                artifacts_dir
+                / f"layer_{layer_id:02d}_{layer}"
+                / f"horizon_{h_tag}{horizon_suffix}"
+            )
 
             if not force and (horizon_dir / "ensemble_weights.json").exists():
                 _LOG.info(
-                    "  layer %-20s  horizon %s — artifacts already present, skipping (use --force to retrain)",
-                    layer, h_tag,
+                    "  layer %-20s  horizon %s%s — artifacts already present, skipping (use --force to retrain)",
+                    layer, h_tag, horizon_suffix,
                 )
                 continue
 
             df = build_training_dataset(
-                ohlcv_dir, fundamentals_dir, layer=layer, horizon_tag=h_tag
+                ohlcv_dir, fundamentals_dir, layer=layer, horizon_tag=h_tag, target=target,
             )
             if df.is_empty():
                 _LOG.warning("No data for layer %s horizon %s — skipping", layer, h_tag)
@@ -835,6 +871,12 @@ if __name__ == "__main__":
         help="Retrain even when ensemble_weights.json already exists. "
              "Default: skip completed (layer, horizon) pairs so the loop is resumable.",
     )
+    parser.add_argument(
+        "--target", choices=["raw", "excess"], default="raw",
+        help="Label target: 'raw' (default) predicts ticker_return; 'excess' predicts "
+             "ticker_return - layer_mean_return (sector-neutral). Excess artifacts are "
+             "saved with a _excess suffix so they coexist with the raw tree.",
+    )
     args = parser.parse_args()
 
     project_root = Path(__file__).parent.parent
@@ -843,10 +885,13 @@ if __name__ == "__main__":
     artifacts_dir    = project_root / "models" / "artifacts"
 
     label = args.horizon or "all"
-    _LOG.info("Training per-layer ensembles for horizon(s): %s (force=%s)", label, args.force)
+    _LOG.info(
+        "Training per-layer ensembles for horizon(s): %s target=%s force=%s",
+        label, args.target, args.force,
+    )
     train_all_layers(
         ohlcv_dir, fundamentals_dir, artifacts_dir,
-        horizon_tag=args.horizon, force=args.force,
+        horizon_tag=args.horizon, force=args.force, target=args.target,
     )
     _LOG.info("[Train] All layer artifacts → %s", artifacts_dir)
     print(f"[Train] Artifacts → {artifacts_dir}")

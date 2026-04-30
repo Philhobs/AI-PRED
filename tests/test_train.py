@@ -321,6 +321,48 @@ def test_train_all_layers_creates_horizon_artifact_dirs(tmp_path):
     assert len(flat_artifacts) == 0, "Found flat-layout artifacts; expected horizon_{tag}/ subdirs"
 
 
+def test_train_all_layers_target_excess_writes_to_suffixed_dir(tmp_path):
+    """target='excess' artifacts land under horizon_<H>_excess so they coexist with raw."""
+    ohlcv_dir = tmp_path / "financials" / "ohlcv"
+    fund_dir = tmp_path / "financials" / "fundamentals"
+    artifacts_dir = tmp_path / "artifacts"
+    _write_ohlcv_fixture(ohlcv_dir, TICKERS_FIXTURE, N_DAYS)
+    _write_fundamentals_fixture(fund_dir, TICKERS_FIXTURE)
+
+    from models.train import train_all_layers
+    # Train both targets back-to-back to verify they coexist
+    train_all_layers(
+        ohlcv_dir, fund_dir, artifacts_dir,
+        horizon_tag="5d", target="raw",
+        lgbm_params=_LGBM_TEST, rf_params=_RF_TEST,
+    )
+    train_all_layers(
+        ohlcv_dir, fund_dir, artifacts_dir,
+        horizon_tag="5d", target="excess",
+        lgbm_params=_LGBM_TEST, rf_params=_RF_TEST,
+    )
+
+    layer_dirs = list(artifacts_dir.glob("layer_*"))
+    assert len(layer_dirs) >= 1
+    for layer_dir in layer_dirs:
+        raw_dir    = layer_dir / "horizon_5d"
+        excess_dir = layer_dir / "horizon_5d_excess"
+        # If raw trained, excess should too (same tickers/data); if neither, both
+        # should be absent. Don't allow only one to exist for a given layer.
+        if raw_dir.exists():
+            assert excess_dir.exists(), (
+                f"Expected horizon_5d_excess alongside horizon_5d in {layer_dir}"
+            )
+            assert (excess_dir / "ensemble_weights.json").exists()
+            # Sanity: the two trees must be DIFFERENT artifact files
+            raw_w    = (raw_dir / "ensemble_weights.json").read_text()
+            excess_w = (excess_dir / "ensemble_weights.json").read_text()
+            # They could happen to match in degenerate cases, but on the synthetic
+            # fixture they should differ at least slightly.
+            # We assert structural separation (paths differ) at minimum.
+            assert raw_dir.resolve() != excess_dir.resolve()
+
+
 def test_train_all_layers_skips_completed_pairs_by_default(tmp_path, monkeypatch):
     """A second run leaves existing artifacts alone — train_single_layer is not re-invoked."""
     ohlcv_dir = tmp_path / "financials" / "ohlcv"

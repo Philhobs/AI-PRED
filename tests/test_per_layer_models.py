@@ -44,7 +44,7 @@ def test_train_all_layers_creates_15_dirs(tmp_path, monkeypatch):
     # Monkeypatch build_training_dataset to return synthetic data per layer.
     # Must accept horizon_tag since train_all_layers now passes it.
     # Return 120 rows (≥100 coverage gate) with a 'label_return' column.
-    def fake_build(ohlcv_dir, fundamentals_dir, layer=None, horizon_tag=None):
+    def fake_build(ohlcv_dir, fundamentals_dir, layer=None, horizon_tag=None, target="raw"):
         if layer is None:
             return pl.DataFrame()
         from models.train import FEATURE_COLS

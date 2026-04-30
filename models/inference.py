@@ -167,11 +167,15 @@ def _predict_layer(
     layer: str,
     artifacts_dir: Path,
     horizon_tag: str = "252d",
+    target: str = "raw",
 ) -> pl.DataFrame | None:
     """Run one layer model on the tickers belonging to that layer for a given horizon.
 
-    Looks for artifacts at layer_dir/horizon_{horizon_tag}/. Falls back to layer_dir/
-    directly for legacy flat-structure 252d artifacts (backward compat).
+    Looks for artifacts at layer_dir/horizon_{horizon_tag}[_excess]/. Falls back to
+    layer_dir/ directly for legacy flat-structure 252d artifacts (backward compat).
+
+    target: "raw" (default) reads from horizon_<H>/; "excess" reads from
+    horizon_<H>_excess/. Both subtrees may coexist.
 
     Returns DataFrame with [ticker, layer, horizon, expected_annual_return,
     confidence_low, confidence_high, lgbm_return, rf_return, ridge_return]
@@ -179,10 +183,11 @@ def _predict_layer(
     """
     layer_id = LAYER_IDS[layer]
     layer_dir = artifacts_dir / f"layer_{layer_id:02d}_{layer}"
-    horizon_dir = layer_dir / f"horizon_{horizon_tag}"
+    suffix = "_excess" if target == "excess" else ""
+    horizon_dir = layer_dir / f"horizon_{horizon_tag}{suffix}"
 
     # Backward compat: fall back to flat structure for legacy 252d artifacts
-    if not horizon_dir.exists() and horizon_tag == "252d":
+    if not horizon_dir.exists() and horizon_tag == "252d" and target == "raw":
         horizon_dir = layer_dir
 
     if not (horizon_dir / "feature_names.json").exists():
@@ -246,11 +251,17 @@ def run_inference(
     artifacts_dir: Path = Path("models/artifacts"),
     output_dir: Path = Path("data/predictions"),
     horizon_tag: str | None = None,
+    target: str = "raw",
 ) -> pl.DataFrame:
     """Run all trained layer models and return globally ranked predictions.
 
     horizon_tag: if given, runs only that horizon. If None, runs all horizons
                  that have at least one trained layer artifact.
+
+    target: "raw" (default) reads horizon_<H>/ artifacts; "excess" reads
+    horizon_<H>_excess/. Excess predictions are written to
+    output_dir/date=*/horizon=<H>_excess/predictions.parquet so both targets'
+    predictions coexist for comparison.
 
     Returns the primary horizon's (252d if available, else first found) combined
     DataFrame for backward compatibility.
@@ -258,14 +269,18 @@ def run_inference(
     Raises ValueError if date_str is a weekend.
     Raises RuntimeError if no price data exists for date_str.
     """
+    if target not in ("raw", "excess"):
+        raise ValueError(f"target must be 'raw' or 'excess', got {target!r}")
+
     as_of = dt.date.fromisoformat(date_str)
     if as_of.weekday() >= 5:
         raise ValueError(f"{date_str} is a weekend. Skip inference on non-trading days.")
 
     from models.train import HORIZON_CONFIGS
     horizons_to_run = [horizon_tag] if horizon_tag else list(HORIZON_CONFIGS.keys())
+    output_suffix = "_excess" if target == "excess" else ""
 
-    print(f"[Inference] Running for {date_str}, horizon(s): {horizon_tag or 'all'}...")
+    print(f"[Inference] Running for {date_str}, horizon(s): {horizon_tag or 'all'}, target: {target}...")
 
     feature_df = _build_feature_df(date_str, data_dir)
 
@@ -274,12 +289,12 @@ def run_inference(
     for h_tag in horizons_to_run:
         all_preds: list[pl.DataFrame] = []
         for layer in all_layers():
-            layer_preds = _predict_layer(feature_df, layer, artifacts_dir, h_tag)
+            layer_preds = _predict_layer(feature_df, layer, artifacts_dir, h_tag, target=target)
             if layer_preds is not None:
                 all_preds.append(layer_preds)
 
         if not all_preds:
-            _LOG.debug("No artifacts for horizon %s — skipping", h_tag)
+            _LOG.debug("No artifacts for horizon %s target %s — skipping", h_tag, target)
             continue
 
         combined = pl.concat(all_preds).sort("expected_annual_return", descending=True)
@@ -288,8 +303,8 @@ def run_inference(
             pl.lit(as_of).cast(pl.Date).alias("as_of_date"),
         )
 
-        # Write horizon-partitioned output
-        out_path = output_dir / f"date={date_str}" / f"horizon={h_tag}" / "predictions.parquet"
+        # Write horizon-partitioned output (with _excess suffix when target=excess)
+        out_path = output_dir / f"date={date_str}" / f"horizon={h_tag}{output_suffix}" / "predictions.parquet"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         combined.write_parquet(out_path, compression="snappy")
 
@@ -334,5 +349,11 @@ if __name__ == "__main__":
         "--horizon", default=None,
         help="Single horizon tag, e.g. '5d' or '252d'. Default: all trained horizons.",
     )
+    parser.add_argument(
+        "--target", choices=["raw", "excess"], default="raw",
+        help="'raw' (default) reads horizon_<H>/ artifacts and predicts ticker_return; "
+             "'excess' reads horizon_<H>_excess/ and predicts ticker_return - layer_mean. "
+             "Excess output is written to a parallel horizon=<H>_excess partition.",
+    )
     args = parser.parse_args()
-    run_inference(date_str=today.isoformat(), horizon_tag=args.horizon)
+    run_inference(date_str=today.isoformat(), horizon_tag=args.horizon, target=args.target)
