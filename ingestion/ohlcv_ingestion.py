@@ -50,9 +50,18 @@ def fetch_ohlcv(ticker: str, period: str = "2y") -> list[dict]:
 
 def save_ohlcv(records: list[dict], ticker: str, output_dir: Path) -> None:
     """
-    Write OHLCV records to Hive-style Parquet partitioned by year.
+    Merge OHLCV records into Hive-style Parquet partitioned by year.
+
     Path: <output_dir>/financials/ohlcv/<TICKER>/<YEAR>.parquet
-    All records for the same ticker+year are written to a single file.
+    All records for the same ticker+year are merged into a single file. When a
+    file already exists for that year, this *unions* the new records with the
+    existing rows (deduplicating by date, keeping the new value on conflict).
+
+    This append-merge behavior was added 2026-05-03 — previously the function
+    overwrote the file unconditionally, which truncated the year's history to
+    whatever fetch period the caller used (e.g. period='5d' would shrink the
+    year to 5 rows). The fix preserves history across daily refreshes while
+    still letting --bootstrap rewrite from a fresh download.
     """
     if not records:
         return
@@ -64,9 +73,21 @@ def save_ohlcv(records: list[dict], ticker: str, output_dir: Path) -> None:
     for year, year_records in by_year.items():
         path = output_dir / "financials" / "ohlcv" / ticker / f"{year}.parquet"
         path.parent.mkdir(parents=True, exist_ok=True)
-        table = pa.Table.from_pylist(year_records, schema=SCHEMA)
-        pq.write_table(table, path, compression="snappy")
-        print(f"[OHLCV] {ticker}/{year}: {len(year_records)} rows → {path}")
+        new_table = pa.Table.from_pylist(year_records, schema=SCHEMA)
+
+        if path.exists():
+            existing = pq.read_table(path)
+            # Concatenate, then dedupe by date keeping the LAST occurrence
+            # (i.e. the freshly-fetched value wins over the stored copy).
+            combined = pa.concat_tables([existing, new_table])
+            df = combined.to_pandas().drop_duplicates(subset=["date"], keep="last").sort_values("date")
+            merged = pa.Table.from_pandas(df, schema=SCHEMA, preserve_index=False)
+            pq.write_table(merged, path, compression="snappy")
+            print(f"[OHLCV] {ticker}/{year}: merged {len(year_records)} new rows "
+                  f"→ {merged.num_rows} total → {path}")
+        else:
+            pq.write_table(new_table, path, compression="snappy")
+            print(f"[OHLCV] {ticker}/{year}: {len(year_records)} rows → {path}")
 
 
 if __name__ == "__main__":

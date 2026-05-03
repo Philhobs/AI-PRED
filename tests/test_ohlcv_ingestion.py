@@ -102,6 +102,47 @@ def test_fetch_ohlcv_handles_multiindex_columns():
     assert results[0]["volume"] == 1_000_000
 
 
+def test_save_ohlcv_appends_to_existing_year_file(tmp_path):
+    """Daily refresh (small fetch) must MERGE into existing year file, not truncate it.
+
+    Regression: prior to 2026-05-03 the function overwrote the file unconditionally,
+    so a `--period 5d` daily refresh would shrink the year's history to 5 rows.
+    """
+    from ingestion.ohlcv_ingestion import save_ohlcv
+    import pyarrow.parquet as pq
+
+    # First save: 5 historical days
+    historical = [
+        {"ticker": "NVDA", "date": datetime.date(2024, 1, 2 + i),
+         "open": 500.0 + i, "high": 510.0 + i, "low": 495.0 + i,
+         "close_price": 505.0 + i, "volume": 1_000_000}
+        for i in range(5)
+    ]
+    save_ohlcv(historical, "NVDA", tmp_path)
+    path = tmp_path / "financials" / "ohlcv" / "NVDA" / "2024.parquet"
+    assert pq.read_table(path).num_rows == 5
+
+    # Daily refresh: 2 records (one overlaps, one fresh)
+    refresh = [
+        {"ticker": "NVDA", "date": datetime.date(2024, 1, 6),  # overlaps with historical
+         "open": 999.0, "high": 999.0, "low": 999.0,
+         "close_price": 999.0, "volume": 9_999_999},          # newer values should win
+        {"ticker": "NVDA", "date": datetime.date(2024, 1, 8),  # net-new day
+         "open": 600.0, "high": 610.0, "low": 595.0,
+         "close_price": 605.0, "volume": 1_500_000},
+    ]
+    save_ohlcv(refresh, "NVDA", tmp_path)
+    merged = pq.read_table(path).to_pandas().sort_values("date").reset_index(drop=True)
+
+    # 5 original + 1 net-new = 6 rows (overlap deduped)
+    assert len(merged) == 6
+    # Conflicting date Jan 6: refresh value (999) wins
+    jan6 = merged[merged["date"] == datetime.date(2024, 1, 6)].iloc[0]
+    assert jan6["close_price"] == 999.0
+    # Original Jan 2 still present
+    assert datetime.date(2024, 1, 2) in merged["date"].values
+
+
 def test_save_ohlcv_partitions_across_years(tmp_path):
     """Records spanning year boundaries produce one file per year."""
     records = [
