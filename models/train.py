@@ -191,6 +191,7 @@ def build_training_dataset(
     layer: str | None = None,
     horizon_tag: str | None = None,
     target: str = "raw",
+    cutoff: "date | None" = None,
 ) -> pl.DataFrame:
     """
     Assemble the full labeled training dataset, optionally filtered to one layer
@@ -205,6 +206,13 @@ def build_training_dataset(
     target:      "raw" (default — predicts ticker_return) or "excess"
                  (predicts ticker_return - layer_mean_return; sector-neutral
                  within the layer). target="excess" requires horizon_tag.
+    cutoff:      walk-forward training cutoff. When set, OHLCV is filtered to
+                 date <= cutoff before label computation, so labels for spine
+                 rows near cutoff are null (forward shift can't find a future
+                 price), and downstream label-not-null filtering excludes any
+                 training row whose label peeks past cutoff. Spine rows AFTER
+                 cutoff are also excluded since their features may use data we
+                 don't want the model to have seen.
     """
     if target not in ("raw", "excess"):
         raise ValueError(f"target must be 'raw' or 'excess', got {target!r}")
@@ -224,12 +232,14 @@ def build_training_dataset(
         if target == "excess":
             label_col = f"label_excess_{horizon_tag}"
             multi_labels = build_multi_horizon_excess_labels(
-                ohlcv_dir, horizons={horizon_tag: HORIZON_CONFIGS[horizon_tag]["shift"]}
+                ohlcv_dir, horizons={horizon_tag: HORIZON_CONFIGS[horizon_tag]["shift"]},
+                max_date=cutoff,
             )
         else:
             label_col = f"label_return_{horizon_tag}"
             multi_labels = build_multi_horizon_labels(
-                ohlcv_dir, horizons={horizon_tag: HORIZON_CONFIGS[horizon_tag]["shift"]}
+                ohlcv_dir, horizons={horizon_tag: HORIZON_CONFIGS[horizon_tag]["shift"]},
+                max_date=cutoff,
             )
         if layer is not None:
             multi_labels = multi_labels.filter(pl.col("ticker").is_in(layer_tickers))
@@ -525,6 +535,7 @@ def train_all_layers(
     rf_params: dict | None = None,
     force: bool = False,
     target: str = "raw",
+    cutoff: "date | None" = None,
 ) -> None:
     """Train one ensemble per (horizon, layer) pair and save artifacts.
 
@@ -538,6 +549,10 @@ def train_all_layers(
     label_excess_<H> (ticker_return - layer_mean_return). Both targets can
     be trained side by side and compared; inference picks one via its own
     --target flag.
+
+    cutoff: walk-forward training cutoff. When set, label_scope is filtered to
+    rows whose forward window doesn't peek past cutoff (see build_training_dataset).
+    Inference at spine dates AFTER cutoff is genuinely out-of-sample.
 
     force: if False (default), skip any (layer, horizon) whose artifact dir
     already contains ensemble_weights.json (the marker file written last by
@@ -581,6 +596,7 @@ def train_all_layers(
 
             df = build_training_dataset(
                 ohlcv_dir, fundamentals_dir, layer=layer, horizon_tag=h_tag, target=target,
+                cutoff=cutoff,
             )
             if df.is_empty():
                 _LOG.warning("No data for layer %s horizon %s — skipping", layer, h_tag)
@@ -877,21 +893,33 @@ if __name__ == "__main__":
              "ticker_return - layer_mean_return (sector-neutral). Excess artifacts are "
              "saved with a _excess suffix so they coexist with the raw tree.",
     )
+    parser.add_argument(
+        "--cutoff", default=None,
+        help="Walk-forward training cutoff YYYY-MM-DD. Filters labels so the "
+             "forward window cannot peek past cutoff; artifacts go to "
+             "<artifacts>/walkforward/cutoff=<DATE>/layer_NN/horizon_<H>[_excess]/. "
+             "Inference at spine dates AFTER cutoff is genuinely out-of-sample.",
+    )
     args = parser.parse_args()
+
+    cutoff_date = date.fromisoformat(args.cutoff) if args.cutoff else None
 
     project_root = Path(__file__).parent.parent
     ohlcv_dir        = project_root / "data" / "raw" / "financials" / "ohlcv"
     fundamentals_dir = project_root / "data" / "raw" / "financials" / "fundamentals"
     artifacts_dir    = project_root / "models" / "artifacts"
+    if cutoff_date is not None:
+        artifacts_dir = artifacts_dir / "walkforward" / f"cutoff={args.cutoff}"
 
     label = args.horizon or "all"
     _LOG.info(
-        "Training per-layer ensembles for horizon(s): %s target=%s force=%s",
-        label, args.target, args.force,
+        "Training per-layer ensembles for horizon(s): %s target=%s cutoff=%s force=%s",
+        label, args.target, args.cutoff or "none", args.force,
     )
     train_all_layers(
         ohlcv_dir, fundamentals_dir, artifacts_dir,
         horizon_tag=args.horizon, force=args.force, target=args.target,
+        cutoff=cutoff_date,
     )
     _LOG.info("[Train] All layer artifacts → %s", artifacts_dir)
     print(f"[Train] Artifacts → {artifacts_dir}")

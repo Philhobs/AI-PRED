@@ -241,7 +241,11 @@ def main() -> int:
     args = parser.parse_args()
     sector_neutral = not args.no_sector_neutral
 
-    pred_files = sorted(_PREDICTIONS_DIR.glob("date=*/horizon=*/predictions.parquet"))
+    # Match both top-level (date=*/horizon=*) and walkforward (walkforward/cutoff=*/date=*/horizon=*) layouts.
+    pred_files = sorted(
+        list(_PREDICTIONS_DIR.glob("date=*/horizon=*/predictions.parquet"))
+        + list(_PREDICTIONS_DIR.glob("walkforward/cutoff=*/date=*/horizon=*/predictions.parquet"))
+    )
     if not pred_files:
         print(f"No predictions found under {_PREDICTIONS_DIR}.")
         return 1

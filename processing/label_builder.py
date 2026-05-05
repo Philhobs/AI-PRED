@@ -1,3 +1,4 @@
+from datetime import date
 from pathlib import Path
 
 import polars as pl
@@ -57,12 +58,19 @@ def build_labels(
 def build_multi_horizon_labels(
     ohlcv_dir: Path = Path("data/raw/financials/ohlcv"),
     horizons: dict[str, int] | None = None,
+    max_date: "date | None" = None,
 ) -> pl.DataFrame:
     """
     Compute multi-horizon forward returns for each ticker×date row.
 
     horizons: mapping of tag → shift_days, e.g. {"5d": 5, "252d": 252}.
     Defaults to the 8-horizon set from HORIZON_CONFIGS in models/train.py.
+
+    max_date: if given, drops OHLCV rows with date > max_date BEFORE computing
+    labels. This is the walk-forward cutoff: labels for spine dates near
+    max_date will naturally be null (because the forward shift can't find a
+    future price), and downstream filtering on label-not-null produces a
+    training spine that hasn't peeked past max_date.
 
     Returns DataFrame: ticker (String), date (Date), label_return_{tag} (Float64)...
     Rows are NOT filtered — each column has nulls where the forward window is unavailable.
@@ -93,6 +101,8 @@ def build_multi_horizon_labels(
         return pl.DataFrame(schema=schema)
 
     df = df.with_columns(pl.col("date").cast(pl.Date)).sort(["ticker", "date"])
+    if max_date is not None:
+        df = df.filter(pl.col("date") <= max_date)
 
     label_exprs = [
         (
@@ -111,6 +121,7 @@ def build_multi_horizon_excess_labels(
     ohlcv_dir: Path = Path("data/raw/financials/ohlcv"),
     horizons: dict[str, int] | None = None,
     ticker_layers: dict[str, str] | None = None,
+    max_date: "date | None" = None,
 ) -> pl.DataFrame:
     """
     Compute layer-residualized (sector-neutral) forward returns.
@@ -147,7 +158,7 @@ def build_multi_horizon_excess_labels(
         from ingestion.ticker_registry import TICKER_LAYERS
         ticker_layers = TICKER_LAYERS
 
-    raw = build_multi_horizon_labels(ohlcv_dir, horizons=horizons)
+    raw = build_multi_horizon_labels(ohlcv_dir, horizons=horizons, max_date=max_date)
     if raw.is_empty():
         schema = {"ticker": pl.String, "date": pl.Date}
         schema.update({f"label_excess_{tag}": pl.Float64 for tag in horizons})

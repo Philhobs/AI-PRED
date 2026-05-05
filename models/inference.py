@@ -252,6 +252,7 @@ def run_inference(
     output_dir: Path = Path("data/predictions"),
     horizon_tag: str | None = None,
     target: str = "raw",
+    cutoff: str | None = None,
 ) -> pl.DataFrame:
     """Run all trained layer models and return globally ranked predictions.
 
@@ -262,6 +263,11 @@ def run_inference(
     horizon_<H>_excess/. Excess predictions are written to
     output_dir/date=*/horizon=<H>_excess/predictions.parquet so both targets'
     predictions coexist for comparison.
+
+    cutoff: walk-forward cutoff date (YYYY-MM-DD). When set, reads from
+    artifacts_dir/walkforward/cutoff=<DATE>/ and writes to
+    output_dir/walkforward/cutoff=<DATE>/date=*/horizon=*/ — keeps the
+    walk-forward predictions in their own subtree for harness scoring.
 
     Returns the primary horizon's (252d if available, else first found) combined
     DataFrame for backward compatibility.
@@ -275,6 +281,10 @@ def run_inference(
     as_of = dt.date.fromisoformat(date_str)
     if as_of.weekday() >= 5:
         raise ValueError(f"{date_str} is a weekend. Skip inference on non-trading days.")
+
+    if cutoff is not None:
+        artifacts_dir = artifacts_dir / "walkforward" / f"cutoff={cutoff}"
+        output_dir = output_dir / "walkforward" / f"cutoff={cutoff}"
 
     from models.train import HORIZON_CONFIGS
     horizons_to_run = [horizon_tag] if horizon_tag else list(HORIZON_CONFIGS.keys())
