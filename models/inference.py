@@ -253,6 +253,7 @@ def run_inference(
     horizon_tag: str | None = None,
     target: str = "raw",
     cutoff: str | None = None,
+    ablation: str = "none",
 ) -> pl.DataFrame:
     """Run all trained layer models and return globally ranked predictions.
 
@@ -285,6 +286,9 @@ def run_inference(
     if cutoff is not None:
         artifacts_dir = artifacts_dir / "walkforward" / f"cutoff={cutoff}"
         output_dir = output_dir / "walkforward" / f"cutoff={cutoff}"
+    if ablation != "none":
+        artifacts_dir = artifacts_dir / f"ablation={ablation}"
+        output_dir = output_dir / f"ablation={ablation}"
 
     from models.train import HORIZON_CONFIGS
     horizons_to_run = [horizon_tag] if horizon_tag else list(HORIZON_CONFIGS.keys())

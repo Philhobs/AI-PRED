@@ -245,6 +245,7 @@ def main() -> int:
     pred_files = sorted(
         list(_PREDICTIONS_DIR.glob("date=*/horizon=*/predictions.parquet"))
         + list(_PREDICTIONS_DIR.glob("walkforward/cutoff=*/date=*/horizon=*/predictions.parquet"))
+        + list(_PREDICTIONS_DIR.glob("walkforward/cutoff=*/ablation=*/date=*/horizon=*/predictions.parquet"))
     )
     if not pred_files:
         print(f"No predictions found under {_PREDICTIONS_DIR}.")

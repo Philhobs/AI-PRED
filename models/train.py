@@ -126,6 +126,29 @@ FEATURE_COLS = (
     + AI_ECONOMICS_FEATURE_COLS
 )
 
+# ── Phase D ablation ─────────────────────────────────────────────────────────
+# The "AI-infra differentiated block" — features that bet on the AI-infra
+# thesis specifically (vs standard cross-sectional alpha factors). Phase D
+# trains a baseline that DROPS this block to test whether it carries
+# incremental IC over a vanilla-quant feature set.
+_AI_INFRA_FEATURE_COLS = (
+    ENERGY_FEATURE_COLS
+    + SUPPLY_CHAIN_FEATURE_COLS
+    + CYBER_THREAT_FEATURE_COLS
+    + GOV_BEHAVIORAL_FEATURE_COLS
+    + USPTO_PATENT_FEATURE_COLS
+    + LABOR_FEATURE_COLS
+    + CENSUS_TRADE_FEATURE_COLS
+    + PHYSICAL_AI_FEATURE_COLS
+    + AI_ECONOMICS_FEATURE_COLS
+)
+
+# Maps ablation tag → predicate that filters a feature-col list.
+_ABLATION_FILTERS: dict[str, callable] = {
+    "none":         lambda cols: list(cols),
+    "no_ai_infra":  lambda cols: [c for c in cols if c not in _AI_INFRA_FEATURE_COLS],
+}
+
 # ── Horizon registry ──────────────────────────────────────────────────────────
 HORIZON_CONFIGS: dict[str, dict] = {
     "5d":   {"shift": 5,    "tier": "short"},
@@ -192,6 +215,7 @@ def build_training_dataset(
     horizon_tag: str | None = None,
     target: str = "raw",
     cutoff: "date | None" = None,
+    ablation: str = "none",
 ) -> pl.DataFrame:
     """
     Assemble the full labeled training dataset, optionally filtered to one layer
@@ -228,6 +252,9 @@ def build_training_dataset(
             )
         tier = HORIZON_CONFIGS[horizon_tag]["tier"]
         feat_cols = TIER_FEATURE_COLS[tier]
+        if ablation not in _ABLATION_FILTERS:
+            raise ValueError(f"Unknown ablation {ablation!r}. Valid: {list(_ABLATION_FILTERS)}")
+        feat_cols = _ABLATION_FILTERS[ablation](feat_cols)
 
         if target == "excess":
             label_col = f"label_excess_{horizon_tag}"
@@ -536,6 +563,7 @@ def train_all_layers(
     force: bool = False,
     target: str = "raw",
     cutoff: "date | None" = None,
+    ablation: str = "none",
 ) -> None:
     """Train one ensemble per (horizon, layer) pair and save artifacts.
 
@@ -571,12 +599,15 @@ def train_all_layers(
     horizons_to_train = [horizon_tag] if horizon_tag else list(HORIZON_CONFIGS.keys())
     horizon_suffix = "_excess" if target == "excess" else ""
 
+    if ablation not in _ABLATION_FILTERS:
+        raise ValueError(f"Unknown ablation {ablation!r}. Valid: {list(_ABLATION_FILTERS)}")
+
     for h_tag in horizons_to_train:
         tier = HORIZON_CONFIGS[h_tag]["tier"]
-        feat_cols = TIER_FEATURE_COLS[tier]
+        feat_cols = _ABLATION_FILTERS[ablation](TIER_FEATURE_COLS[tier])
         _LOG.info(
-            "Training horizon %s target=%s (%s tier, %d features)",
-            h_tag, target, tier, len(feat_cols),
+            "Training horizon %s target=%s ablation=%s (%s tier, %d features)",
+            h_tag, target, ablation, tier, len(feat_cols),
         )
 
         for layer in all_layers():
@@ -596,7 +627,7 @@ def train_all_layers(
 
             df = build_training_dataset(
                 ohlcv_dir, fundamentals_dir, layer=layer, horizon_tag=h_tag, target=target,
-                cutoff=cutoff,
+                cutoff=cutoff, ablation=ablation,
             )
             if df.is_empty():
                 _LOG.warning("No data for layer %s horizon %s — skipping", layer, h_tag)
@@ -900,6 +931,15 @@ if __name__ == "__main__":
              "<artifacts>/walkforward/cutoff=<DATE>/layer_NN/horizon_<H>[_excess]/. "
              "Inference at spine dates AFTER cutoff is genuinely out-of-sample.",
     )
+    parser.add_argument(
+        "--ablation", choices=["none", "no_ai_infra"], default="none",
+        help="Phase D feature ablation. 'no_ai_infra' drops the differentiated "
+             "block (energy, supply_chain, cyber_threat, gov_behavioral, patents, "
+             "labor, census_trade, physical_ai, ai_economics) — keeping only the "
+             "standard cross-sectional alpha factors. Compare to 'none' to "
+             "measure incremental IC of the AI-infra differentiation thesis. "
+             "Artifacts segregated under <artifacts_dir>/ablation=<NAME>/.",
+    )
     args = parser.parse_args()
 
     cutoff_date = date.fromisoformat(args.cutoff) if args.cutoff else None
@@ -910,16 +950,18 @@ if __name__ == "__main__":
     artifacts_dir    = project_root / "models" / "artifacts"
     if cutoff_date is not None:
         artifacts_dir = artifacts_dir / "walkforward" / f"cutoff={args.cutoff}"
+    if args.ablation != "none":
+        artifacts_dir = artifacts_dir / f"ablation={args.ablation}"
 
     label = args.horizon or "all"
     _LOG.info(
-        "Training per-layer ensembles for horizon(s): %s target=%s cutoff=%s force=%s",
-        label, args.target, args.cutoff or "none", args.force,
+        "Training per-layer ensembles for horizon(s): %s target=%s cutoff=%s ablation=%s force=%s",
+        label, args.target, args.cutoff or "none", args.ablation, args.force,
     )
     train_all_layers(
         ohlcv_dir, fundamentals_dir, artifacts_dir,
         horizon_tag=args.horizon, force=args.force, target=args.target,
-        cutoff=cutoff_date,
+        cutoff=cutoff_date, ablation=args.ablation,
     )
     _LOG.info("[Train] All layer artifacts → %s", artifacts_dir)
     print(f"[Train] Artifacts → {artifacts_dir}")

@@ -47,6 +47,8 @@ def main() -> int:
     parser.add_argument("--end",     required=True, help="Last spine date YYYY-MM-DD (typically today - horizon).")
     parser.add_argument("--horizon", default="5d",  help="Single horizon tag, e.g. '5d'.")
     parser.add_argument("--target",  choices=["raw", "excess", "both"], default="both")
+    parser.add_argument("--ablation", choices=["none", "no_ai_infra"], default="none",
+                        help="Match the --ablation used at training time.")
     args = parser.parse_args()
 
     cutoff_date = date.fromisoformat(args.cutoff)
@@ -77,6 +79,7 @@ def main() -> int:
                     horizon_tag=args.horizon,
                     target=tgt,
                     cutoff=args.cutoff,
+                    ablation=args.ablation,
                 )
                 n_done += 1
             except ValueError as exc:
