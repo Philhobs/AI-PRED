@@ -144,10 +144,20 @@ _AI_INFRA_FEATURE_COLS = (
     + AI_ECONOMICS_FEATURE_COLS
 )
 
+# ── Phase E3 ablation: deep-history-only feature subset ──────────────────────
+# Per the Phase E2 audit, most non-price/non-fundamental feature parquets are
+# either shallow (months of history), single-snapshot, or missing entirely.
+# Long-horizon backtests (252d+) need years of training history; using shallow
+# features as inputs means training mostly on imputed nulls = noise.
+# _DEEP_FEATURE_COLS restricts to the columns with ≥10 years of actual data:
+# price (1962+) + fundamentals (2008+).
+_DEEP_FEATURE_COLS = PRICE_FEATURE_COLS + FUND_FEATURE_COLS
+
 # Maps ablation tag → predicate that filters a feature-col list.
 _ABLATION_FILTERS: dict[str, callable] = {
     "none":         lambda cols: list(cols),
     "no_ai_infra":  lambda cols: [c for c in cols if c not in _AI_INFRA_FEATURE_COLS],
+    "deep_only":    lambda cols: [c for c in cols if c in _DEEP_FEATURE_COLS],
 }
 
 # ── Horizon registry ──────────────────────────────────────────────────────────
@@ -940,7 +950,7 @@ if __name__ == "__main__":
              "Inference at spine dates AFTER cutoff is genuinely out-of-sample.",
     )
     parser.add_argument(
-        "--ablation", choices=["none", "no_ai_infra"], default="none",
+        "--ablation", choices=["none", "no_ai_infra", "deep_only"], default="none",
         help="Phase D feature ablation. 'no_ai_infra' drops the differentiated "
              "block (energy, supply_chain, cyber_threat, gov_behavioral, patents, "
              "labor, census_trade, physical_ai, ai_economics) — keeping only the "
