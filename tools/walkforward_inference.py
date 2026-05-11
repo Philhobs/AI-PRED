@@ -22,7 +22,7 @@ from pathlib import Path
 
 import polars as pl
 
-from models.inference import run_inference
+from models.inference import run_inference, _build_feature_df_range
 
 _PROJECT_ROOT = Path(__file__).parent.parent
 _OHLCV_NVDA = _PROJECT_ROOT / "data" / "raw" / "financials" / "ohlcv" / "NVDA"
@@ -68,6 +68,20 @@ def main() -> int:
           f"{len(trading_days)} trading days from {trading_days[0]} to {trading_days[-1]}",
           flush=True)
 
+    # Build the joined feature DataFrame ONCE for the full holdout range, then
+    # slice per-date in the loop. The join chain is the dominant inference
+    # cost — empirically ~20 min per date. Batching cuts total time ~50-100x.
+    print(f"[walkforward] Building features for [{trading_days[0]}, {trading_days[-1]}]…",
+          flush=True)
+    t0 = __import__("time").time()
+    feature_df = _build_feature_df_range(
+        trading_days[0].isoformat(),
+        trading_days[-1].isoformat(),
+        data_dir=_PROJECT_ROOT / "data" / "raw",
+    )
+    print(f"[walkforward] Features built: {feature_df.shape} rows in "
+          f"{__import__('time').time() - t0:.1f}s", flush=True)
+
     n_done = 0
     n_skipped = 0
     n_error = 0
@@ -80,6 +94,7 @@ def main() -> int:
                     target=tgt,
                     cutoff=args.cutoff,
                     ablation=args.ablation,
+                    feature_df=feature_df,
                 )
                 n_done += 1
             except ValueError as exc:

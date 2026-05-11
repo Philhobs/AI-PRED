@@ -56,19 +56,19 @@ def _load_pickle(path: Path):
         return pickle.load(f)
 
 
-def _build_feature_df(
-    date_str: str,
+def _join_all_features(
+    price_df: pl.DataFrame,
     data_dir: Path,
 ) -> pl.DataFrame:
-    """Build the full feature DataFrame for all tickers on date_str."""
+    """Apply the full feature-join chain to a price_df spine.
+
+    Used by both _build_feature_df (single date) and _build_feature_df_range
+    (date range, called once by tools.walkforward_inference to avoid
+    rebuilding features per date — the join chain is the dominant inference
+    cost, and join_asof works on any spine size).
+    """
     ohlcv_dir        = data_dir / "financials" / "ohlcv"
     fundamentals_dir = data_dir / "financials" / "fundamentals"
-
-    price_df = build_price_features(ohlcv_dir, filter_date=date_str)
-    if price_df.is_empty():
-        raise RuntimeError(
-            f"No price data for {date_str}. Run ohlcv_ingestion.py to refresh."
-        )
 
     df = join_fundamentals(price_df, fundamentals_dir)
 
@@ -160,6 +160,46 @@ def _build_feature_df(
     )
 
     return df
+
+
+def _build_feature_df(
+    date_str: str,
+    data_dir: Path,
+) -> pl.DataFrame:
+    """Build the full feature DataFrame for all tickers on date_str."""
+    ohlcv_dir = data_dir / "financials" / "ohlcv"
+    price_df = build_price_features(ohlcv_dir, filter_date=date_str)
+    if price_df.is_empty():
+        raise RuntimeError(
+            f"No price data for {date_str}. Run ohlcv_ingestion.py to refresh."
+        )
+    return _join_all_features(price_df, data_dir)
+
+
+def _build_feature_df_range(
+    start_date: str,
+    end_date: str,
+    data_dir: Path,
+) -> pl.DataFrame:
+    """Build the full feature DataFrame for ALL trading days in [start, end].
+
+    Used by tools.walkforward_inference to amortize the (expensive) join chain
+    across many dates — feature joins are mostly join_asof against pre-computed
+    parquets and run once on the multi-date spine instead of N times on N
+    single-date spines.
+    """
+    ohlcv_dir = data_dir / "financials" / "ohlcv"
+    price_df = build_price_features(ohlcv_dir, filter_date=None)
+    start = dt.date.fromisoformat(start_date)
+    end = dt.date.fromisoformat(end_date)
+    price_df = price_df.filter(
+        (pl.col("date") >= start) & (pl.col("date") <= end)
+    )
+    if price_df.is_empty():
+        raise RuntimeError(
+            f"No price data in [{start_date}, {end_date}]. Run ohlcv_ingestion.py to refresh."
+        )
+    return _join_all_features(price_df, data_dir)
 
 
 def _predict_layer(
@@ -254,6 +294,7 @@ def run_inference(
     target: str = "raw",
     cutoff: str | None = None,
     ablation: str = "none",
+    feature_df: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
     """Run all trained layer models and return globally ranked predictions.
 
@@ -296,7 +337,16 @@ def run_inference(
 
     print(f"[Inference] Running for {date_str}, horizon(s): {horizon_tag or 'all'}, target: {target}...")
 
-    feature_df = _build_feature_df(date_str, data_dir)
+    if feature_df is None:
+        feature_df = _build_feature_df(date_str, data_dir)
+    else:
+        # Caller pre-built a multi-date feature DF (e.g. tools.walkforward_inference
+        # building the holdout range once); slice to as_of date here.
+        feature_df = feature_df.filter(pl.col("date") == as_of)
+        if feature_df.is_empty():
+            raise RuntimeError(
+                f"No features for {date_str} in pre-built feature_df."
+            )
 
     primary_combined: pl.DataFrame | None = None
 
@@ -341,12 +391,17 @@ def run_inference(
             "Run models/train.py first."
         )
 
-    # Enrich primary predictions with portfolio metrics
-    try:
-        from processing.portfolio_metrics import enrich
-        enrich(date_str, predictions_dir=output_dir)
-    except Exception as exc:
-        _LOG.warning("Portfolio metrics enrichment failed (non-fatal): %s", exc, exc_info=True)
+    # Enrich primary predictions with portfolio metrics. Skipped when the caller
+    # supplied a pre-built feature_df (walkforward path), because (a) the harness
+    # only needs predictions + realized returns, not portfolio metrics, and
+    # (b) enrich does live yfinance share-count lookups that hang on certain
+    # tickers — empirically this stalled 20d inference at 20/132 dates.
+    if feature_df is None:
+        try:
+            from processing.portfolio_metrics import enrich
+            enrich(date_str, predictions_dir=output_dir)
+        except Exception as exc:
+            _LOG.warning("Portfolio metrics enrichment failed (non-fatal): %s", exc, exc_info=True)
 
     return primary_combined
 

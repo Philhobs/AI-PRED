@@ -10,6 +10,7 @@ Artifacts saved to models/artifacts/:
   feature_names.json                           — ordered feature list (guards column drift)
   ensemble_weights.json                        — {lgbm, rf, ridge} NNLS weights summing to 1
 """
+import gc
 import json
 import logging
 import pickle
@@ -649,6 +650,13 @@ def train_all_layers(
                 lgbm_params=lgbm_params,
                 rf_params=rf_params,
             )
+            # Drop the layer's training frame and force a GC pass before the
+            # next layer rebuilds its own dataset. Without this, polars/numpy
+            # buffers and sklearn estimator state from the previous layer can
+            # accumulate, push the process into swap, and turn a 12-min layer
+            # into a multi-hour paging stall.
+            del df
+            gc.collect()
 
 
 # ── Main training entry point ─────────────────────────────────────────────────
