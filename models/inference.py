@@ -331,7 +331,7 @@ def run_inference(
         artifacts_dir = artifacts_dir / f"ablation={ablation}"
         output_dir = output_dir / f"ablation={ablation}"
 
-    from models.train import HORIZON_CONFIGS
+    from models.train import HORIZON_CONFIGS, HORIZON_SIGN_CONVENTION
     horizons_to_run = [horizon_tag] if horizon_tag else list(HORIZON_CONFIGS.keys())
     output_suffix = "_excess" if target == "excess" else ""
 
@@ -361,7 +361,21 @@ def run_inference(
             _LOG.debug("No artifacts for horizon %s target %s — skipping", h_tag, target)
             continue
 
-        combined = pl.concat(all_preds).sort("expected_annual_return", descending=True)
+        combined = pl.concat(all_preds)
+
+        # Phase E5: apply per-horizon sign convention. The model fits
+        # short-horizon cross-sectional momentum and predicts with that sign
+        # at every horizon. At 252d+ the cross-section reverses; flipping the
+        # sign converts the model's continuation prediction into the correct
+        # reversal prediction. Sort/rank are applied AFTER the flip so the
+        # globally-best ranks reflect the sign-corrected expectation.
+        sign = HORIZON_SIGN_CONVENTION.get(h_tag, 1)
+        if sign != 1:
+            combined = combined.with_columns(
+                (pl.col("expected_annual_return") * sign).alias("expected_annual_return"),
+            )
+
+        combined = combined.sort("expected_annual_return", descending=True)
         combined = combined.with_columns(
             pl.Series("rank", list(range(1, len(combined) + 1)), dtype=pl.Int32),
             pl.lit(as_of).cast(pl.Date).alias("as_of_date"),

@@ -120,3 +120,80 @@ def test_inference_merges_all_layers(tmp_path, monkeypatch):
     assert result["rank"].min() == 1
     assert result["rank"].max() == len(TICKERS)
     assert "layer" in result.columns
+
+
+def test_horizon_sign_convention_flips_252d(tmp_path, monkeypatch):
+    """Phase E5: HORIZON_SIGN_CONVENTION[252d] == -1, and run_inference
+    applies the flip so the 252d expected_annual_return column has the
+    opposite sign of what _predict_layer would produce raw.
+
+    Trains artifacts for one layer at one horizon (252d), inferences once
+    with the convention in effect, then again with the convention forced
+    to +1, and compares.
+    """
+    import polars as pl
+    import numpy as np
+    from datetime import date as _date2
+    import models.train as train_module
+    import models.inference as infer_module
+    from models.train import (
+        train_single_layer, FEATURE_COLS, HORIZON_SIGN_CONVENTION,
+        HORIZON_CONFIGS,
+    )
+    from ingestion.ticker_registry import (
+        TICKERS, tickers_in_layer, layers as all_layers, LAYER_IDS,
+    )
+
+    # The convention itself should mark 252d as -1 and 5d/20d/65d as +1.
+    assert HORIZON_SIGN_CONVENTION["252d"] == -1
+    assert HORIZON_SIGN_CONVENTION["5d"]  == +1
+    assert HORIZON_SIGN_CONVENTION["65d"] == +1
+
+    # Train minimal artifacts for one horizon (252d) on every layer.
+    artifacts_dir = tmp_path / "artifacts"
+    for layer in all_layers():
+        layer_id = LAYER_IDS[layer]
+        layer_dir = artifacts_dir / f"layer_{layer_id:02d}_{layer}" / "horizon_252d"
+        df = _make_layer_df(layer, n_rows=80)
+        train_single_layer(df, layer_dir, feature_cols=FEATURE_COLS,
+                           label_col="label_return")
+
+    rng = np.random.default_rng(0)
+    feature_rows = []
+    for t in TICKERS:
+        row = {"ticker": t, "date": _date2(2024, 1, 15)}
+        for col in FEATURE_COLS:
+            row[col] = float(rng.normal(0, 1))
+        feature_rows.append(row)
+    feature_df = pl.DataFrame(feature_rows).with_columns(pl.col("date").cast(pl.Date))
+    monkeypatch.setattr(infer_module, "_build_feature_df", lambda *a, **kw: feature_df)
+
+    # Run inference with convention active.
+    flipped = infer_module.run_inference(
+        date_str="2024-01-15",
+        data_dir=tmp_path / "raw",
+        artifacts_dir=artifacts_dir,
+        output_dir=tmp_path / "flipped",
+        horizon_tag="252d",
+    )
+
+    # Force convention to +1 (no flip) and re-run for comparison.
+    monkeypatch.setattr(
+        train_module, "HORIZON_SIGN_CONVENTION",
+        {**HORIZON_SIGN_CONVENTION, "252d": +1},
+    )
+    raw = infer_module.run_inference(
+        date_str="2024-01-15",
+        data_dir=tmp_path / "raw",
+        artifacts_dir=artifacts_dir,
+        output_dir=tmp_path / "raw_path",
+        horizon_tag="252d",
+    )
+
+    # Same tickers, opposite expected_annual_return values.
+    f = flipped.sort("ticker").select(["ticker", "expected_annual_return"])
+    r = raw.sort("ticker").select(["ticker", "expected_annual_return"])
+    assert f["ticker"].to_list() == r["ticker"].to_list()
+    for fv, rv in zip(f["expected_annual_return"].to_list(),
+                       r["expected_annual_return"].to_list()):
+        assert abs(fv + rv) < 1e-9, f"sign flip should make values exact negatives: {fv} vs {rv}"

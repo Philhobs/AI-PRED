@@ -172,6 +172,26 @@ HORIZON_CONFIGS: dict[str, dict] = {
     "5040d":{"shift": 5040, "tier": "long"},
 }
 
+# ── Per-horizon sign convention (Phase E5) ──────────────────────────────────
+# The model fits short-horizon cross-sectional momentum strongly because that's
+# where most of the training-period signal lives. At long horizons the
+# cross-section REVERSES (recent winners → losers), so the model's prediction
+# sign is inverted vs reality. Validated empirically in Phase E4:
+#   252d ORIGINAL: IC = -0.0461 (FULL) / -0.0351 (DEEP) across 753 folds.
+#   252d NEGATED:  IC = +0.0461 / +0.0351,  LSnet = +0.0054 / +0.0444 per fold.
+# At inference, expected_annual_return is multiplied by HORIZON_SIGN_CONVENTION
+# so the output represents the model's view AFTER sign correction.
+HORIZON_SIGN_CONVENTION: dict[str, int] = {
+    "5d":    +1,
+    "20d":   +1,
+    "65d":   +1,
+    "252d":  -1,   # Phase E4 verified: cross-sectional momentum reverses at 1y.
+    "756d":  +1,   # Unvalidated (holdout not matured). Defaults to no flip
+    "1260d": +1,   # until empirical evidence. Revisit when those horizons can
+    "2520d": +1,   # be backtested against an older cutoff.
+    "5040d": +1,
+}
+
 # The 5 cyber threat features with 7d windows belong in short + medium tiers.
 # The 30d features (cve_critical_30d, cisa_kev_30d) are medium-only.
 _CYBER_THREAT_SHORT_COLS = [c for c in CYBER_THREAT_FEATURE_COLS if c.endswith("_7d")]
