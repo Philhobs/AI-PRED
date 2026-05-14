@@ -293,7 +293,7 @@ def run_inference(
     horizon_tag: str | None = None,
     target: str = "raw",
     cutoff: str | None = None,
-    ablation: str = "none",
+    ablation: str = "auto",
     feature_df: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
     """Run all trained layer models and return globally ranked predictions.
@@ -327,11 +327,14 @@ def run_inference(
     if cutoff is not None:
         artifacts_dir = artifacts_dir / "walkforward" / f"cutoff={cutoff}"
         output_dir = output_dir / "walkforward" / f"cutoff={cutoff}"
-    if ablation != "none":
-        artifacts_dir = artifacts_dir / f"ablation={ablation}"
-        output_dir = output_dir / f"ablation={ablation}"
+    # NOTE: ablation suffix is applied PER-HORIZON inside the loop below, not
+    # here. This lets ablation="auto" resolve to a different subtree per
+    # horizon (e.g. no_ai_infra at 65d, deep_only at 252d) within a single
+    # inference call.
 
-    from models.train import HORIZON_CONFIGS, HORIZON_SIGN_CONVENTION
+    from models.train import (
+        HORIZON_CONFIGS, HORIZON_SIGN_CONVENTION, resolve_ablation,
+    )
     horizons_to_run = [horizon_tag] if horizon_tag else list(HORIZON_CONFIGS.keys())
     output_suffix = "_excess" if target == "excess" else ""
 
@@ -351,14 +354,26 @@ def run_inference(
     primary_combined: pl.DataFrame | None = None
 
     for h_tag in horizons_to_run:
+        # Phase 2.3: resolve ablation per horizon. ablation="auto" consults
+        # HORIZON_ABLATION_DEFAULTS so a single inference call may read
+        # different ablation subtrees per horizon (no_ai_infra at 65d,
+        # deep_only at 252d, none elsewhere).
+        h_ablation = resolve_ablation(h_tag, ablation)
+        h_artifacts_dir = artifacts_dir
+        h_output_dir = output_dir
+        if h_ablation != "none":
+            h_artifacts_dir = h_artifacts_dir / f"ablation={h_ablation}"
+            h_output_dir = h_output_dir / f"ablation={h_ablation}"
+
         all_preds: list[pl.DataFrame] = []
         for layer in all_layers():
-            layer_preds = _predict_layer(feature_df, layer, artifacts_dir, h_tag, target=target)
+            layer_preds = _predict_layer(feature_df, layer, h_artifacts_dir, h_tag, target=target)
             if layer_preds is not None:
                 all_preds.append(layer_preds)
 
         if not all_preds:
-            _LOG.debug("No artifacts for horizon %s target %s — skipping", h_tag, target)
+            _LOG.debug("No artifacts for horizon %s target %s ablation %s — skipping",
+                       h_tag, target, h_ablation)
             continue
 
         combined = pl.concat(all_preds)
@@ -382,13 +397,13 @@ def run_inference(
         )
 
         # Write horizon-partitioned output (with _excess suffix when target=excess)
-        out_path = output_dir / f"date={date_str}" / f"horizon={h_tag}{output_suffix}" / "predictions.parquet"
+        out_path = h_output_dir / f"date={date_str}" / f"horizon={h_tag}{output_suffix}" / "predictions.parquet"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         combined.write_parquet(out_path, compression="snappy")
 
         # Backward-compat alias for 252d
         if h_tag == "252d":
-            compat_path = output_dir / f"date={date_str}" / "predictions.parquet"
+            compat_path = h_output_dir / f"date={date_str}" / "predictions.parquet"
             combined.write_parquet(compat_path, compression="snappy")
 
         n_tickers = len(combined)

@@ -115,6 +115,8 @@ def test_inference_merges_all_layers(tmp_path, monkeypatch):
         data_dir=tmp_path / "raw",
         artifacts_dir=artifacts_dir,
         output_dir=tmp_path / "predictions",
+        ablation="none",  # bypass the production 'auto' default; this test
+                          # trains a flat (non-ablation) artifact tree.
     )
     assert len(result) == len(TICKERS)
     assert result["rank"].min() == 1
@@ -168,13 +170,16 @@ def test_horizon_sign_convention_flips_252d(tmp_path, monkeypatch):
     feature_df = pl.DataFrame(feature_rows).with_columns(pl.col("date").cast(pl.Date))
     monkeypatch.setattr(infer_module, "_build_feature_df", lambda *a, **kw: feature_df)
 
-    # Run inference with convention active.
+    # Run inference with convention active. Pass ablation="none" explicitly
+    # so the test doesn't pick up the production "auto" default (which would
+    # route 252d to the deep_only ablation subtree).
     flipped = infer_module.run_inference(
         date_str="2024-01-15",
         data_dir=tmp_path / "raw",
         artifacts_dir=artifacts_dir,
         output_dir=tmp_path / "flipped",
         horizon_tag="252d",
+        ablation="none",
     )
 
     # Force convention to +1 (no flip) and re-run for comparison.
@@ -188,6 +193,7 @@ def test_horizon_sign_convention_flips_252d(tmp_path, monkeypatch):
         artifacts_dir=artifacts_dir,
         output_dir=tmp_path / "raw_path",
         horizon_tag="252d",
+        ablation="none",
     )
 
     # Same tickers, opposite expected_annual_return values.
@@ -197,3 +203,34 @@ def test_horizon_sign_convention_flips_252d(tmp_path, monkeypatch):
     for fv, rv in zip(f["expected_annual_return"].to_list(),
                        r["expected_annual_return"].to_list()):
         assert abs(fv + rv) < 1e-9, f"sign flip should make values exact negatives: {fv} vs {rv}"
+
+
+def test_horizon_ablation_defaults_resolve_correctly():
+    """Phase 2.3: HORIZON_ABLATION_DEFAULTS encodes the validated production
+    choice per horizon, and resolve_ablation routes 'auto' through it while
+    leaving explicit values alone."""
+    from models.train import HORIZON_ABLATION_DEFAULTS, resolve_ablation
+
+    # Dict values reflect the latest verdicts:
+    #   5d / 20d → no clear winner → 'none'
+    #   65d → no_ai_infra (Phase 2.2 retest)
+    #   252d → deep_only (Phase E4 + 2.1 + 2.2)
+    assert HORIZON_ABLATION_DEFAULTS["5d"]   == "none"
+    assert HORIZON_ABLATION_DEFAULTS["20d"]  == "none"
+    assert HORIZON_ABLATION_DEFAULTS["65d"]  == "no_ai_infra"
+    assert HORIZON_ABLATION_DEFAULTS["252d"] == "deep_only"
+
+    # 'auto' routes through the dict per horizon.
+    assert resolve_ablation("5d",   "auto") == "none"
+    assert resolve_ablation("65d",  "auto") == "no_ai_infra"
+    assert resolve_ablation("252d", "auto") == "deep_only"
+
+    # Explicit overrides pass through unchanged (operators can A/B against
+    # the production default at any horizon by naming the ablation directly).
+    assert resolve_ablation("65d", "none")        == "none"
+    assert resolve_ablation("65d", "deep_only")   == "deep_only"
+    assert resolve_ablation("252d", "no_ai_infra") == "no_ai_infra"
+
+    # Multi-horizon path (horizon_tag None) falls back to 'none' for 'auto'
+    # — the per-horizon dispatcher inside run_inference handles each iteration.
+    assert resolve_ablation(None, "auto") == "none"

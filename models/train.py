@@ -192,6 +192,49 @@ HORIZON_SIGN_CONVENTION: dict[str, int] = {
     "5040d": +1,
 }
 
+# ── Per-horizon ablation defaults (Phase 2.3) ───────────────────────────────
+# At inference time, each horizon should serve predictions from the ablation
+# subtree that won its backtest. End users running `models.inference --horizon
+# 65d` shouldn't have to remember which ablation to pick — this dict encodes
+# the validated choice. CLIs that accept --ablation default to "auto", which
+# resolves through this dict per-horizon.
+#   5d   → none         Phase D verdict: ablation NEUTRAL (no clear winner)
+#   20d  → none         Phase E1 verdict: ablation NEUTRAL
+#   65d  → no_ai_infra  Phase 2.2 retest: IC=+0.0785, LSnet=+428 bps (best)
+#   252d → deep_only    Phase E4/2.1/2.2: IC=+0.0351, LSnet=+444 bps (best,
+#                       requires the E5 sign flip applied at inference)
+#   756d+ → deep_only   Tentative — long horizons inherit the 252d shape.
+#                       Revisit when older-cutoff holdouts mature.
+# These are inference-time defaults only. Training stays explicit
+# (`--ablation no_ai_infra`); operators train each subtree they want to
+# compare, and inference picks the right one at serve time.
+HORIZON_ABLATION_DEFAULTS: dict[str, str] = {
+    "5d":    "none",
+    "20d":   "none",
+    "65d":   "no_ai_infra",
+    "252d":  "deep_only",
+    "756d":  "deep_only",
+    "1260d": "deep_only",
+    "2520d": "deep_only",
+    "5040d": "deep_only",
+}
+
+
+def resolve_ablation(horizon_tag: str | None, requested: str = "auto") -> str:
+    """Return the ablation tag to use for inference at this horizon.
+
+    'auto' (default) consults HORIZON_ABLATION_DEFAULTS. An explicit value
+    (none / no_ai_infra / deep_only) passes through unchanged so callers
+    can override the production default for experimentation. If horizon_tag
+    is None (multi-horizon run with no specific target), falls back to
+    'none' — the per-horizon dict is meant for single-horizon resolution.
+    """
+    if requested != "auto":
+        return requested
+    if horizon_tag is None:
+        return "none"
+    return HORIZON_ABLATION_DEFAULTS.get(horizon_tag, "none")
+
 # The 5 cyber threat features with 7d windows belong in short + medium tiers.
 # The 30d features (cve_critical_30d, cisa_kev_30d) are medium-only.
 _CYBER_THREAT_SHORT_COLS = [c for c in CYBER_THREAT_FEATURE_COLS if c.endswith("_7d")]

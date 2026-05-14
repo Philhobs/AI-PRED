@@ -47,8 +47,15 @@ def main() -> int:
     parser.add_argument("--end",     required=True, help="Last spine date YYYY-MM-DD (typically today - horizon).")
     parser.add_argument("--horizon", default="5d",  help="Single horizon tag, e.g. '5d'.")
     parser.add_argument("--target",  choices=["raw", "excess", "both"], default="both")
-    parser.add_argument("--ablation", choices=["none", "no_ai_infra", "deep_only"], default="none",
-                        help="Match the --ablation used at training time.")
+    parser.add_argument("--ablation",
+                        choices=["auto", "none", "no_ai_infra", "deep_only"],
+                        default="none",
+                        help="Ablation subtree to read at inference. 'auto' "
+                             "consults HORIZON_ABLATION_DEFAULTS (production "
+                             "default); 'none'/'no_ai_infra'/'deep_only' "
+                             "override per the corresponding training run. "
+                             "Default 'none' keeps backtest A/B comparability — "
+                             "use 'auto' for production validation.")
     args = parser.parse_args()
 
     cutoff_date = date.fromisoformat(args.cutoff)
