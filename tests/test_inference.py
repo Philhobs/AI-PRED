@@ -133,6 +133,8 @@ def test_run_inference_writes_horizon_parquet(trained_env_multi):
         artifacts_dir=base / "artifacts",
         output_dir=output_dir,
         horizon_tag="252d",
+        ablation="none",  # bypass production "auto" default; test fixture
+                          # trains flat artifacts without ablation subdir.
     )
 
     expected = output_dir / f"date={date_str}" / "horizon=252d" / "predictions.parquet"
@@ -151,6 +153,8 @@ def test_run_inference_backward_compat_path(trained_env_multi):
         artifacts_dir=base / "artifacts",
         output_dir=output_dir,
         horizon_tag="252d",
+        ablation="none",  # bypass production "auto" default; test fixture
+                          # trains flat artifacts without ablation subdir.
     )
 
     compat_path = output_dir / f"date={date_str}" / "predictions.parquet"
@@ -168,6 +172,8 @@ def test_run_inference_horizon_column_present(trained_env_multi):
         artifacts_dir=base / "artifacts",
         output_dir=base / "predictions_col",
         horizon_tag="252d",
+        ablation="none",  # bypass production "auto" default; test fixture
+                          # trains flat artifacts without ablation subdir.
     )
 
     assert "horizon" in result.columns
@@ -184,6 +190,7 @@ def test_run_inference_returns_correct_schema(trained_env):
         data_dir=data_dir,
         artifacts_dir=artifacts_dir,
         output_dir=data_dir / "predictions",
+        ablation="none",
     )
 
     required_cols = {
@@ -207,6 +214,7 @@ def test_run_inference_ranks_are_unique_and_sequential(trained_env):
         data_dir=data_dir,
         artifacts_dir=artifacts_dir,
         output_dir=data_dir / "predictions",
+        ablation="none",
     )
 
     ranks = sorted(result["rank"].to_list())
@@ -225,6 +233,7 @@ def test_run_inference_writes_parquet(trained_env):
         data_dir=data_dir,
         artifacts_dir=artifacts_dir,
         output_dir=output_dir,
+        ablation="none",
     )
 
     parquet_path = output_dir / f"date={date_str}" / "predictions.parquet"

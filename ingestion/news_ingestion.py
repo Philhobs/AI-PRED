@@ -296,6 +296,49 @@ def fetch_gdelt_events(query: str, days_back: int = 1) -> list[dict]:
     ]
 
 
+def fetch_gdelt_events_per_ticker(
+    ticker: str,
+    alias: str,
+    days_back: int = 1,
+    max_retries: int = 3,
+) -> list[dict]:
+    """Query GDELT for a single ticker's primary alias and force-tag the ticker.
+
+    The thematic GDELT query in `fetch_gdelt_events` returns articles about
+    AI-infra topics generally; _tag_tickers can only label them if the ticker
+    name happens to appear in the short snippet/title. Most thematic articles
+    don't. This per-ticker variant inverts the flow: ask GDELT for articles
+    mentioning the ticker by name, then force-tag with the ticker regardless
+    of whether _tag_tickers re-detects it in the snippet (the snippet is short
+    and often omits the very name that matched the query).
+
+    Retries on 429 (rate-limited) with exponential backoff: 8s, 16s, 32s.
+
+    Result: every returned article carries `ticker` in mentioned_tickers, so
+    the downstream sentiment_features aggregator gets per-ticker rows it can
+    actually average over.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            articles = fetch_gdelt_events(query=f'"{alias}"', days_back=days_back)
+            for art in articles:
+                existing = set(art.get("mentioned_tickers") or [])
+                existing.add(ticker)
+                art["mentioned_tickers"] = sorted(existing)
+            return articles
+        except Exception as e:  # noqa: BLE001 — covers 429s and JSON-parse failures
+            last_exc = e
+            msg = str(e)
+            # Treat 429s and empty-body JSON-parse errors as rate-limit signals
+            if "429" in msg or "Expecting value" in msg or "timed out" in msg.lower():
+                wait = 8 * (2 ** attempt)
+                time.sleep(wait)
+                continue
+            raise
+    raise last_exc if last_exc else RuntimeError(f"fetch_gdelt_events_per_ticker {ticker} failed")
+
+
 def fetch_gdelt_gkg_tone(theme: str, days_back: int = 7) -> dict:
     """
     Fetch GDELT GKG tone timeline for a theme.
@@ -395,6 +438,26 @@ if __name__ == "__main__":
         help="Lookback window in days for GDELT events (default 7). "
              "Use a larger value (e.g. 90) for cold-start backfill of sentiment history.",
     )
+    parser.add_argument(
+        "--per-ticker", action="store_true", default=False,
+        help="OPT-IN: after the thematic GDELT fetch, run an additional "
+             "per-ticker query for each ticker's primary alias. Articles "
+             "are force-tagged with the matching ticker so the downstream "
+             "sentiment_features aggregator gets per-ticker rows to average "
+             "over. NOTE: GDELT DOC API rate-limits aggressive callers with "
+             "429s; even at 30s between queries the free API throttles "
+             "~70%% of requests. Realistic full-150-ticker pass takes ~1-2 "
+             "hours with most queries retrying. Use sparingly (e.g. weekly) "
+             "or in cold-start backfill, not every daily run.",
+    )
+    parser.add_argument(
+        "--per-ticker-sleep", type=float, default=30.0,
+        help="Sleep seconds between per-ticker GDELT queries (default 30). "
+             "GDELT throttling on the free DOC API is severe; the fetcher "
+             "retries with exponential backoff (8/16/32s) but the simpler "
+             "fix is just running fewer queries. Lower the value if you've "
+             "observed your IP gets less aggressive throttling.",
+    )
     args = parser.parse_args()
 
     output_dir = Path("data/raw")
@@ -429,6 +492,73 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"[News] GDELT ERROR: {e}")
     time.sleep(1)  # rate limit compliance between GDELT and EDGAR calls
+
+    # ── Per-ticker GDELT fetch (lightweight sentiment coverage fix) ─────────
+    # The thematic query above almost never returns articles where the short
+    # snippet mentions one of our 194 tickers by name, so the downstream
+    # sentiment_features aggregator gets ~zero per-ticker rows. Looping over
+    # each ticker's primary alias instead gives every fetched article an
+    # unambiguous ticker tag.
+    if args.per_ticker:
+        print(f"[News] Per-ticker GDELT fetch ({len(TICKER_ALIASES)} tickers, "
+              f"~{len(TICKER_ALIASES)*args.per_ticker_sleep:.0f}s)…")
+        per_ticker_rows: list[dict] = []
+        n_ok = 0
+        n_err = 0
+        for ticker, aliases in TICKER_ALIASES.items():
+            if not aliases:
+                continue
+            primary_alias = aliases[0]
+            try:
+                rows = fetch_gdelt_events_per_ticker(
+                    ticker, primary_alias, days_back=args.days,
+                )
+                per_ticker_rows.extend(rows)
+                n_ok += 1
+            except Exception as e:  # noqa: BLE001 — fail-soft per project convention
+                n_err += 1
+                if n_err < 5:
+                    print(f"[News] per-ticker GDELT {ticker}: {e}")
+            time.sleep(args.per_ticker_sleep)
+
+        print(f"[News] Per-ticker GDELT: {n_ok}/{len(TICKER_ALIASES)} OK, "
+              f"{n_err} errors, {len(per_ticker_rows)} articles fetched")
+
+        if per_ticker_rows:
+            # Append to the same date partition as the thematic fetch so the
+            # downstream nlp_pipeline (which globs data.parquet only) picks
+            # both up in one pass. De-dupe by URL to avoid re-scoring the
+            # same article when thematic + per-ticker queries overlap.
+            date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            path = output_dir / "news" / "gdelt" / f"date={date_str}" / "data.parquet"
+            path.parent.mkdir(parents=True, exist_ok=True)
+
+            existing_rows: list[dict] = []
+            if path.exists():
+                try:
+                    existing_table = pq.read_table(path)
+                    existing_rows = existing_table.to_pylist()
+                except Exception as e:  # noqa: BLE001
+                    print(f"[News] couldn't read existing {path} ({e}); overwriting")
+
+            # Merge thematic + per-ticker, dedupe on url, keep per-ticker tags
+            by_url: dict[str, dict] = {}
+            for row in existing_rows + per_ticker_rows:
+                url = row.get("url") or ""
+                if url and url in by_url:
+                    # Merge mentioned_tickers — same article seen via both paths
+                    by_url[url]["mentioned_tickers"] = sorted(
+                        set(by_url[url].get("mentioned_tickers") or [])
+                        | set(row.get("mentioned_tickers") or [])
+                    )
+                else:
+                    by_url[url] = row
+
+            merged = list(by_url.values())
+            table = pa.Table.from_pylist(merged, schema=SCHEMA)
+            pq.write_table(table, path, compression="snappy")
+            print(f"[News] Wrote {len(merged)} GDELT articles "
+                  f"({len(per_ticker_rows)} per-ticker new) → {path}")
 
     print("[News] Searching EDGAR for AI infrastructure filings...")
     try:
