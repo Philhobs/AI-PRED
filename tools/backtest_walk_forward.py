@@ -114,22 +114,35 @@ def _load_realized(as_of: date, horizon_days: int, tickers: list[str]) -> dict[s
     return {r[0]: float(r[1]) for r in rows if r[1] is not None}
 
 
-def _decile_split(df: pl.DataFrame, sector_neutral: bool) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Return (top_decile_df, bottom_decile_df) given a DataFrame with columns
-    [ticker, layer, predicted, realized]. If sector_neutral, decile is taken
-    within each layer; otherwise globally."""
+def _decile_split(
+    df: pl.DataFrame,
+    sector_neutral: bool,
+    decile_pct: float = 10.0,
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Return (top_df, bottom_df) given a DataFrame with columns
+    [ticker, layer, predicted, realized].
+
+    decile_pct: percentage in each leg (10.0 = decile, 5.0 = vigintile, etc.).
+        Defaults to 10.0 to preserve the harness baseline for legacy callers.
+    sector_neutral: if True, take top/bot pct within each layer; otherwise
+        global pct across all tickers.
+    """
     if sector_neutral:
-        # Take top 10% / bottom 10% within each layer
         df_sorted = df.sort(["layer", "predicted"], descending=[False, True])
         per_layer_n = df.group_by("layer").len()
-        # Assign rank within layer
         ranked = df_sorted.with_columns(
-            pl.col("predicted").rank(method="ordinal", descending=True).over("layer").alias("rank_in_layer")
+            pl.col("predicted").rank(method="ordinal", descending=True)
+              .over("layer").alias("rank_in_layer")
         ).join(per_layer_n.rename({"len": "n_in_layer"}), on="layer")
-        top = ranked.filter(pl.col("rank_in_layer") <= pl.max_horizontal(pl.col("n_in_layer") // 10, pl.lit(1)))
-        bot = ranked.filter(pl.col("rank_in_layer") > pl.col("n_in_layer") - pl.max_horizontal(pl.col("n_in_layer") // 10, pl.lit(1)))
-        return top.drop(["rank_in_layer", "n_in_layer"]), bot.drop(["rank_in_layer", "n_in_layer"])
-    n = max(1, len(df) // 10)
+        cutoff = pl.max_horizontal(
+            (pl.col("n_in_layer") * decile_pct / 100).cast(pl.Int64),
+            pl.lit(1),
+        )
+        top = ranked.filter(pl.col("rank_in_layer") <= cutoff)
+        bot = ranked.filter(pl.col("rank_in_layer") > pl.col("n_in_layer") - cutoff)
+        return (top.drop(["rank_in_layer", "n_in_layer"]),
+                bot.drop(["rank_in_layer", "n_in_layer"]))
+    n = max(1, int(len(df) * decile_pct / 100))
     sorted_df = df.sort("predicted", descending=True)
     return sorted_df.head(n), sorted_df.tail(n)
 
@@ -141,6 +154,7 @@ def _score_one(
     sector_neutral: bool,
     tc_bps: float,
     borrow_bps_per_year: float,
+    decile_pct: float = 10.0,
 ) -> dict | None:
     """Score one prediction parquet against realized returns.
 
@@ -173,7 +187,7 @@ def _score_one(
     hit = df.filter(pl.col("predicted").sign() == pl.col("realized").sign()).height / df.height
 
     # Long-short portfolio
-    top_df, bot_df = _decile_split(df, sector_neutral=sector_neutral)
+    top_df, bot_df = _decile_split(df, sector_neutral=sector_neutral, decile_pct=decile_pct)
     top_realized = float(top_df["realized"].mean())
     bot_realized = float(bot_df["realized"].mean())
     raw_ls_return = (top_realized - bot_realized) / 2.0  # half capital each leg

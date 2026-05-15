@@ -235,6 +235,46 @@ def resolve_ablation(horizon_tag: str | None, requested: str = "auto") -> str:
         return "none"
     return HORIZON_ABLATION_DEFAULTS.get(horizon_tag, "none")
 
+
+# ── Per-horizon portfolio-construction defaults (Phase 2.8) ─────────────────
+# Phase 2.7's smoothed-rebalance simulation found the L/S basket constructor
+# matters MORE than the per-fold IC. The harness baseline (sector-neutral
+# within layer, 10% decile) is the cleanest A/B-comparable choice for
+# backtests, but in real deployment it gives up most of the alpha. Phase 2.7
+# numbers for the production-default ablation per horizon:
+#
+#   horizon  baseline (sector / 10%)   production (global / 5%)
+#   65d      +17% ann, Sharpe 1.50      +70% ann, Sharpe 2.36   ← validated, big lift
+#   252d     -0.7% ann (!)              +12% ann, Sharpe 1.03   ← validated, lift
+#
+# These defaults drive PRODUCTION scoring (tools.rolling_score, the live
+# realized-performance log). The backtest harness (tools.backtest_walk_forward)
+# keeps the legacy sector/10% defaults so its A/B comparisons stay coherent
+# with the historical Phase D / E1 / 2.1 / 2.2 reports — callers wanting
+# production semantics pass decile_pct/sector_neutral explicitly.
+HORIZON_PORTFOLIO_DEFAULTS: dict[str, dict] = {
+    "5d":    {"decile_pct": 10.0, "sector_neutral": True},  # no validated alpha
+    "20d":   {"decile_pct": 10.0, "sector_neutral": True},  # no validated alpha
+    "65d":   {"decile_pct":  5.0, "sector_neutral": False},  # Phase 2.7 winner
+    "252d":  {"decile_pct":  5.0, "sector_neutral": False},  # Phase 2.7 winner
+    "756d":  {"decile_pct":  5.0, "sector_neutral": False},  # inherits 252d
+    "1260d": {"decile_pct":  5.0, "sector_neutral": False},
+    "2520d": {"decile_pct":  5.0, "sector_neutral": False},
+    "5040d": {"decile_pct":  5.0, "sector_neutral": False},
+}
+
+
+def resolve_portfolio(horizon_tag: str | None) -> tuple[float, bool]:
+    """Return (decile_pct, sector_neutral) for the given horizon.
+
+    Mirror of resolve_ablation for portfolio construction. None falls back
+    to legacy harness defaults (10% sector-neutral) to preserve backward
+    compatibility for multi-horizon callers."""
+    if horizon_tag is None:
+        return (10.0, True)
+    cfg = HORIZON_PORTFOLIO_DEFAULTS.get(horizon_tag, {})
+    return (cfg.get("decile_pct", 10.0), cfg.get("sector_neutral", True))
+
 # The 5 cyber threat features with 7d windows belong in short + medium tiers.
 # The 30d features (cve_critical_30d, cisa_kev_30d) are medium-only.
 _CYBER_THREAT_SHORT_COLS = [c for c in CYBER_THREAT_FEATURE_COLS if c.endswith("_7d")]

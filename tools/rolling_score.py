@@ -32,23 +32,36 @@ _PROJECT_ROOT = Path(__file__).parent.parent
 _LOG_PATH = _PROJECT_ROOT / "data" / "scoring_log.parquet"
 
 _SCHEMA = {
-    "as_of_date": pl.Date,
-    "horizon":    pl.Utf8,
-    "cutoff":     pl.Utf8,
-    "ablation":   pl.Utf8,
-    "n_tickers":  pl.Int32,
-    "ic":         pl.Float64,
-    "hit_rate":   pl.Float64,
-    "ls_net":     pl.Float64,
-    "top_decile": pl.Float64,
-    "bot_decile": pl.Float64,
+    "as_of_date":     pl.Date,
+    "horizon":        pl.Utf8,
+    "cutoff":         pl.Utf8,
+    "ablation":       pl.Utf8,
+    # Phase 2.8: production portfolio settings persisted alongside metrics.
+    # Lets us detect when settings change (auto-rebuild) and lets the log
+    # carry context for later analysis.
+    "decile_pct":     pl.Float64,
+    "sector_neutral": pl.Boolean,
+    "n_tickers":      pl.Int32,
+    "ic":             pl.Float64,
+    "hit_rate":       pl.Float64,
+    "ls_net":         pl.Float64,
+    "top_decile":     pl.Float64,
+    "bot_decile":     pl.Float64,
 }
 
 
 def _load_log() -> pl.DataFrame:
     if not _LOG_PATH.exists():
         return pl.DataFrame(schema=_SCHEMA)
-    return pl.read_parquet(_LOG_PATH)
+    log = pl.read_parquet(_LOG_PATH)
+    # Phase 2.8 schema migration: if the log was written before production
+    # portfolio settings became part of the schema, rebuild from scratch
+    # so every row carries (decile_pct, sector_neutral) context.
+    if {"decile_pct", "sector_neutral"} - set(log.columns):
+        _LOG.warning("[rolling_score] log predates Phase 2.8 schema "
+                     "(missing decile_pct / sector_neutral) — rebuilding from disk")
+        return pl.DataFrame(schema=_SCHEMA)
+    return log
 
 
 def _save_log(log: pl.DataFrame) -> None:
@@ -59,9 +72,17 @@ def _save_log(log: pl.DataFrame) -> None:
 def _score_new_for_horizon(horizon: str, existing: pl.DataFrame) -> list[dict]:
     """Score every prediction not already in the log. _score_one returns
     None when realized data hasn't matured yet, so unmatured predictions
-    are auto-skipped."""
+    are auto-skipped.
+
+    Production portfolio settings (decile_pct, sector_neutral) come from
+    models.train.HORIZON_PORTFOLIO_DEFAULTS — Phase 2.7 showed the harness
+    baseline (sector / 10%) gives up most of the deployable alpha.
+    """
+    from models.train import resolve_portfolio
+
     cutoff = PRODUCTION_CUTOFFS[horizon]
     ablation = _resolve_default_ablation(horizon)
+    decile_pct, sector_neutral = resolve_portfolio(horizon)
     base = (_PROJECT_ROOT / "data" / "predictions" / "walkforward"
             / f"cutoff={cutoff}")
     if ablation != "none":
@@ -70,13 +91,16 @@ def _score_new_for_horizon(horizon: str, existing: pl.DataFrame) -> list[dict]:
         _LOG.warning("[rolling_score] %s: no prediction tree at %s", horizon, base)
         return []
 
-    # Index of already-scored dates for this (horizon, cutoff, ablation) triple
+    # Already-scored under THESE production settings. If decile_pct or
+    # sector_neutral changed since the row was written, re-score it.
     already_scored: set[str] = set()
     if not existing.is_empty():
         filt = existing.filter(
             (pl.col("horizon") == horizon)
             & (pl.col("cutoff") == cutoff)
             & (pl.col("ablation") == ablation)
+            & (pl.col("decile_pct") == decile_pct)
+            & (pl.col("sector_neutral") == sector_neutral)
         )
         already_scored = {d.isoformat() for d in filt["as_of_date"].to_list()}
 
@@ -95,25 +119,30 @@ def _score_new_for_horizon(horizon: str, existing: pl.DataFrame) -> list[dict]:
 
         as_of = date.fromisoformat(as_of_str)
         m = _score_one(pred_file, as_of, horizon_days,
-                       sector_neutral=True, tc_bps=15.0, borrow_bps_per_year=50.0)
+                       sector_neutral=sector_neutral,
+                       tc_bps=15.0, borrow_bps_per_year=50.0,
+                       decile_pct=decile_pct)
         if m is None:
             n_skipped_unmatured += 1
             continue
         new_rows.append({
-            "as_of_date": as_of,
-            "horizon":    horizon,
-            "cutoff":     cutoff,
-            "ablation":   ablation,
-            "n_tickers":  m["n_tickers"],
-            "ic":         float(m["ic"]) if m["ic"] is not None else float("nan"),
-            "hit_rate":   m["hit_rate"],
-            "ls_net":     m["ls_return_net"],
-            "top_decile": m["top_decile_realized"],
-            "bot_decile": m["bot_decile_realized"],
+            "as_of_date":     as_of,
+            "horizon":        horizon,
+            "cutoff":         cutoff,
+            "ablation":       ablation,
+            "decile_pct":     decile_pct,
+            "sector_neutral": sector_neutral,
+            "n_tickers":      m["n_tickers"],
+            "ic":             float(m["ic"]) if m["ic"] is not None else float("nan"),
+            "hit_rate":       m["hit_rate"],
+            "ls_net":         m["ls_return_net"],
+            "top_decile":     m["top_decile_realized"],
+            "bot_decile":     m["bot_decile_realized"],
         })
 
-    _LOG.info("[rolling_score] %s: %d new scored / %d already in log / "
-              "%d unmatured (skipped)", horizon, len(new_rows),
+    _LOG.info("[rolling_score] %s: %d new scored (decile_pct=%.0f%%, "
+              "sector_neutral=%s) / %d already in log / %d unmatured (skipped)",
+              horizon, len(new_rows), decile_pct, sector_neutral,
               n_skipped_already, n_skipped_unmatured)
     return new_rows
 
@@ -122,14 +151,17 @@ def _rolling_summary(log: pl.DataFrame) -> None:
     if log.is_empty():
         print("\nLog empty — no matured predictions yet.")
         return
-    print("\n" + "=" * 78)
-    print("Rolling realized performance (production ablations only)")
-    print("=" * 78)
-    print(f"{'horizon':<7s}  {'window':<10s}  {'folds':>5s}  {'IC':>9s}  "
-          f"{'hit':>5s}  {'LSnet':>9s}")
-    print("-" * 78)
+    print("\n" + "=" * 88)
+    print("Rolling realized performance (PRODUCTION portfolio settings per horizon)")
+    print("=" * 88)
+    print(f"  {'horizon':<7s} {'pct':>5s} {'sn':>5s} {'window':<10s} "
+          f"{'folds':>5s}  {'IC':>9s}  {'hit':>5s}  {'LSnet':>9s}")
+    print("  " + "-" * 64)
     for h in sorted(log["horizon"].unique().to_list()):
         sub = log.filter(pl.col("horizon") == h).sort("as_of_date")
+        pct = float(sub["decile_pct"].tail(1).item())
+        sn = bool(sub["sector_neutral"].tail(1).item())
+        sn_str = "sect" if sn else "glob"
         n_total = sub.height
         for window_name, window_size in (("all-time", n_total),
                                          ("last 60", 60),
@@ -140,9 +172,9 @@ def _rolling_summary(log: pl.DataFrame) -> None:
             ic_mean = slc["ic"].drop_nulls().mean()
             ls_mean = slc["ls_net"].mean()
             hit_mean = slc["hit_rate"].mean()
-            print(f"{h:<7s}  {window_name:<10s}  {slc.height:>5d}  "
-                  f"{ic_mean:+.4f}  {hit_mean:.3f}  {ls_mean:+.4f}")
-    print("=" * 78)
+            print(f"  {h:<7s} {pct:>4.0f}% {sn_str:>5s} {window_name:<10s} "
+                  f"{slc.height:>5d}  {ic_mean:+.4f}  {hit_mean:.3f}  {ls_mean:+.4f}")
+    print("=" * 88)
 
 
 def main() -> int:
