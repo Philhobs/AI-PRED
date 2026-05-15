@@ -75,7 +75,12 @@ def _run_chain() -> dict:
             with step_log.open("w") as f:
                 rc = subprocess.run(
                     cmd, cwd=_PROJECT_ROOT, stdout=f, stderr=subprocess.STDOUT,
-                    timeout=2 * 3600,  # 2-hour wallclock cap per step
+                    # 4-hour wallclock cap per step. run_refresh.sh has
+                    # genuine multi-hour steps (graph_features takes ~70 min
+                    # of multicore compute on a typical day) and the chain
+                    # fires at 23:00 weeknights, so a 4-hour cap still
+                    # finishes well before market open.
+                    timeout=4 * 3600,
                 ).returncode
         except subprocess.TimeoutExpired:
             rc = 124  # standard "timeout" exit code
