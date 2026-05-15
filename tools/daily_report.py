@@ -27,6 +27,7 @@ import polars as pl
 
 from tools.daily_inference import PRODUCTION_CUTOFFS, _resolve_default_ablation
 from tools.rolling_score import _LOG_PATH as _SCORING_LOG_PATH
+from tools.macro_overlay import latest as _macro_latest
 
 _LOG = logging.getLogger(__name__)
 _PROJECT_ROOT = Path(__file__).parent.parent
@@ -91,6 +92,21 @@ def _print_picks(horizon: str, top_n: int) -> None:
               f"{r['expected_annual_return']:+.4f}")
 
 
+def _print_macro_overlay() -> None:
+    row = _macro_latest()
+    if row is None:
+        print("\n[Macro overlay not initialized. Run: python -m tools.macro_overlay]")
+        return
+    regime = ("risk-OFF" if row['macro_risk_score'] > 0.6 else
+              "risk-on"  if row['macro_risk_score'] < 0.4 else "neutral")
+    print(f"\n## Macro overlay  (as_of {row['date']})\n")
+    print(f"  VIX={row['vix']:.1f}  yield_curve={row['yield_curve_bps']:+.0f}bps  "
+          f"DXY={row['dxy']:.1f}")
+    print(f"  macro_risk_score = {row['macro_risk_score']:.2f}  ({regime})")
+    print(f"  GROSS SCALE      = {row['gross_scale']:.2f}  "
+          f"(production sizes positions at {row['gross_scale']*100:.0f}% of nominal)")
+
+
 def _print_rolling_metrics() -> None:
     if not _SCORING_LOG_PATH.exists():
         print("\n[No scoring log yet. Run: python -m tools.rolling_score]")
@@ -132,6 +148,8 @@ def main() -> int:
     print("=" * 78)
     print("AI-PRED daily report")
     print("=" * 78)
+
+    _print_macro_overlay()
 
     print("\n## Latest production picks")
     for h in PRODUCTION_CUTOFFS:
